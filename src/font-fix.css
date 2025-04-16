@@ -1,0 +1,32 @@
+/* Restauração das fontes originais do aplicativo */
+
+/* Importação das fontes para garantir que estejam disponíveis */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&display=swap');
+
+/* Aplicação forçada das fontes corretas */
+* {
+  font-family: 'Nunito', system-ui, sans-serif !important;
+}
+
+h1, h2, h3, h4, h5, h6, 
+.title, .heading, 
+[class*="text-2xl"], 
+[class*="text-3xl"], 
+[class*="text-4xl"], 
+[class*="text-5xl"], 
+[class*="font-bold"] {
+  font-family: 'Comfortaa', cursive !important;
+}
+
+/* Garantir que as definições de fonte sejam aplicadas */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Correção para possíveis problemas de tamanho de fonte */
+html {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  font-size: 16px;
+} 

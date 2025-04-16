@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "KiiFit",
+    "slug": "kiifit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kiifit.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.kiifit.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "17b2d5b7-c0d0-48eb-9905-9c57debfdba4"
+      }
+    }
+  }
+}
