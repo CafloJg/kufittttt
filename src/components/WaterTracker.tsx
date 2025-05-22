@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Droplet, Waves, Check, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { doc, updateDoc, runTransaction } from 'firebase/firestore';
@@ -14,27 +14,21 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
   const [waterIntake, setWaterIntake] = useState<number>(user?.dailyStats?.waterIntake || 0);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const waterGoal = user?.goals?.waterTarget || 2500; // Default water goal in ml
+  
+  const waterGoal = user?.goals?.customGoals?.find(goal => goal.type === 'hydration')?.target || 2500; 
+  
   const progress = Math.min(((waterIntake || 0) / waterGoal) * 100, 100);
   const [showCustomAmount, setShowCustomAmount] = useState(false);
   const [customAmount, setCustomAmount] = useState(250);
   const [lastAddedAmount, setLastAddedAmount] = useState<number | null>(null);
-  const updateInProgressRef = useRef(false);
-  const [updateKey, setUpdateKey] = useState(Date.now());
   const [showAddedToast, setShowAddedToast] = useState(false);
 
-  // Update water intake when user data changes
+  // Simplified useEffect to sync local state with user data
   useEffect(() => {
     if (user?.dailyStats?.waterIntake !== undefined) {
-      // Only update if the value has changed to avoid unnecessary re-renders
-      if (waterIntake !== user.dailyStats.waterIntake) {
-        setWaterIntake(user.dailyStats.waterIntake);
-      }
-      
-      // Force re-render when water intake changes
-      setUpdateKey(Date.now());
+      setWaterIntake(user.dailyStats.waterIntake);
     }
-  }, [user?.dailyStats?.waterIntake, waterIntake]);
+  }, [user?.dailyStats?.waterIntake]);
 
   // Calculate hydration status
   const getHydrationStatus = () => {
@@ -47,13 +41,14 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
 
   const hydrationStatus = getHydrationStatus();
 
-  // Handle water intake update
+  // Handle water intake update (simplified)
   const handleWaterUpdate = async (amount: number) => {
-    if (isUpdating || updateInProgressRef.current) return;
+    if (isUpdating) return; // Check only isUpdating state
         
-    updateInProgressRef.current = true; 
-    setIsUpdating(true);
+    setIsUpdating(true); // Set updating state
     setError(null);
+    
+    const previousWaterIntake = waterIntake; // Store previous value for potential revert
     
     try {
       // Optimistically update UI
@@ -61,7 +56,7 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
       setLastAddedAmount(amount);
       setShowAddedToast(true);
       
-      // Hide toast after 3 seconds
+      // Hide toast after 2 seconds
       setTimeout(() => {
         setShowAddedToast(false);
       }, 2000);
@@ -69,84 +64,69 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
       // Update water intake in Firestore
       if (user) {
         const userRef = doc(db, 'users', user.uid); 
-        const currentWaterIntake = user.dailyStats?.waterIntake || 0;
+        // Fetch current intake from user object (might be slightly stale but OK for optimistic)
+        const currentWaterIntake = user.dailyStats?.waterIntake || 0; 
         const newWaterIntake = currentWaterIntake + amount;
         
-        try {
-          // Use a transaction to ensure atomic updates
-          await runTransaction(db, async (transaction) => {
-            const userDoc = await transaction.get(userRef);
-            if (!userDoc.exists()) {
-              throw new Error('User document not found');
-            }
-            
-            const userData = userDoc.data();
-            const currentStats = userData.dailyStats || {};
-            const currentPlan = userData.currentDietPlan;
-            const today = new Date().toISOString().split('T')[0];
-            
-            // Update user dailyStats
-            transaction.update(userRef, {
-              'dailyStats.waterIntake': newWaterIntake,
-              'dailyStats.lastUpdated': new Date().toISOString(),
-              'updatedAt': new Date().toISOString()
-            });
-            
-            // Also update the currentDietPlan's dailyStats if it exists 
-            if (currentPlan && currentPlan.dailyStats) {
-              // Preserve existing completedMeals
-              const completedMeals = currentPlan.dailyStats.completedMeals || {};
-              
-              transaction.update(userRef, {
-                'currentDietPlan.dailyStats.waterIntake': newWaterIntake,
-                'currentDietPlan.dailyStats.caloriesConsumed': currentPlan.dailyStats.caloriesConsumed || 0,
-                'currentDietPlan.dailyStats.proteinConsumed': currentPlan.dailyStats.proteinConsumed || 0,
-                'currentDietPlan.dailyStats.carbsConsumed': currentPlan.dailyStats.carbsConsumed || 0,
-                'currentDietPlan.dailyStats.fatConsumed': currentPlan.dailyStats.fatConsumed || 0,
-                'currentDietPlan.dailyStats.completedMeals': completedMeals,
-                'currentDietPlan.lastUpdated': new Date().toISOString(),
-                'currentDietPlan.dailyStats.lastUpdated': new Date().toISOString()
-              });
-            }
-          });
-        } catch (transactionError) {
-          console.error('Error in water intake transaction:', transactionError);
-          throw transactionError;
-        }
-        
-        // Refresh user data to update dashboard
-        if (user.refreshUserData) {
-          try {
-            await user.refreshUserData();
-          } catch (refreshError) {
-            console.warn('Error refreshing user data after water update:', refreshError);
+        // Use a transaction (or direct update if atomicity isn't strictly needed here)
+        await runTransaction(db, async (transaction) => {
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) {
+            throw new Error('User document not found');
           }
-        }
+          
+          const userData = userDoc.data();
+          const currentPlan = userData.currentDietPlan;
+          
+          // Update user dailyStats
+          transaction.update(userRef, {
+            'dailyStats.waterIntake': newWaterIntake,
+            'dailyStats.lastUpdated': new Date().toISOString(),
+            'updatedAt': new Date().toISOString()
+          });
+          
+          // Also update the currentDietPlan's dailyStats if it exists 
+          if (currentPlan && currentPlan.dailyStats) {
+            transaction.update(userRef, {
+              'currentDietPlan.dailyStats.waterIntake': newWaterIntake,
+              // Preserve other stats (assuming they aren't modified here)
+              'currentDietPlan.dailyStats.caloriesConsumed': currentPlan.dailyStats.caloriesConsumed || 0,
+              'currentDietPlan.dailyStats.proteinConsumed': currentPlan.dailyStats.proteinConsumed || 0,
+              'currentDietPlan.dailyStats.carbsConsumed': currentPlan.dailyStats.carbsConsumed || 0,
+              'currentDietPlan.dailyStats.fatConsumed': currentPlan.dailyStats.fatConsumed || 0,
+              'currentDietPlan.dailyStats.completedMeals': currentPlan.dailyStats.completedMeals || {},
+              'currentDietPlan.lastUpdated': new Date().toISOString(),
+              'currentDietPlan.dailyStats.lastUpdated': new Date().toISOString()
+            });
+          }
+        });
       }
     } catch (err) {
       console.error('Error updating water intake:', err);
       setError(err instanceof Error ? err.message : 'Erro ao atualizar consumo de água');
-      // Revert optimistic update
-      setWaterIntake(user?.dailyStats?.waterIntake || 0);
+      // Revert optimistic update on error
+      setWaterIntake(previousWaterIntake); // Revert to stored previous value
+      setShowAddedToast(false); // Hide toast on error
     } finally {
-      setIsUpdating(false);
-      // Reset the ref after a short delay to prevent rapid re-clicks
-      setTimeout(() => {
-        updateInProgressRef.current = false;
-      }, 300);
+      setIsUpdating(false); // Reset updating state
     }
   };
 
-  // Debounced version of handleWaterUpdate to prevent rapid clicking
-  const debouncedWaterUpdate = (amount: number) => {
-    if (updateInProgressRef.current) return;
-
-    handleWaterUpdate(amount);
-  };
-
   return (
-    <div className={`${className} relative w-full h-full max-w-xs mx-auto`} key={updateKey}>
+    <div className={`${className} relative w-full h-full max-w-xs mx-auto`}>
       {/* Added amount toast */}
+      <AnimatePresence>
+        {showAddedToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full mt-2 bg-green-500 text-white px-3 py-1 rounded-lg shadow-md z-20 text-sm"
+          >
+            +{lastAddedAmount}ml
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex flex-col space-y-2">
         {/* Header */}
@@ -173,7 +153,7 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
             />
           </div>
           <div className="flex justify-between items-center mt-1 font-medium">
-            <span className="text-sm font-semibold text-red-500">Precisa hidratar</span>
+            <span className={`text-sm font-semibold ${hydrationStatus.color}`}>{hydrationStatus.label}</span>
             <span className="text-sm font-semibold">{Math.round(progress)}%</span>
           </div>
         </div>
@@ -201,12 +181,14 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
                   <span className="text-sm text-blue-700 font-medium">{customAmount}ml</span>
                   <button
                     onClick={() => {
-                      handleWaterUpdate(customAmount);
-                      // Only hide after successful update
-                      setShowCustomAmount(false);
+                      handleWaterUpdate(customAmount); // Call directly
+                      // Hide only if update starts successfully (or optimistically)
+                      if (!isUpdating) { // Check isUpdating before hiding
+                         setShowCustomAmount(false);
+                      }
                     }}
-                    disabled={isUpdating || updateInProgressRef.current}
-                    className="px-3 py-1 bg-blue-500 text-white rounded-lg font-medium text-sm hover:bg-blue-600 transition-colors"
+                    disabled={isUpdating} // Disable based on isUpdating state
+                    className="px-3 py-1 bg-blue-500 text-white rounded-lg font-medium text-sm hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Adicionar
                   </button>
@@ -222,10 +204,10 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
         {[200, 350, 500].map(amount => (
           <motion.button
             key={amount}
-            onClick={() => debouncedWaterUpdate(amount)}
-            disabled={isUpdating || updateInProgressRef.current}
+            onClick={() => handleWaterUpdate(amount)} // Call directly
+            disabled={isUpdating} // Disable based on isUpdating state
             whileTap={{ scale: 0.95 }}
-            className="py-2 bg-blue-500 text-white rounded-lg transition-colors flex items-center justify-center hover:bg-blue-600 text-sm font-medium touch-manipulation"
+            className="py-2 bg-blue-500 text-white rounded-lg transition-colors flex items-center justify-center hover:bg-blue-600 text-sm font-medium touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label={`Adicionar ${amount}ml de água`}
           >
             <span>{amount}ml</span>
@@ -235,12 +217,15 @@ export default function WaterTracker({ className = '' }: WaterTrackerProps) {
         <motion.button
           onClick={() => setShowCustomAmount(!showCustomAmount)}
           whileTap={{ scale: 0.95 }}
-          className="py-2 bg-gray-200 text-blue-500 rounded-lg transition-colors flex items-center justify-center hover:bg-gray-300 text-sm font-medium touch-manipulation"
+          disabled={isUpdating} // Also disable this button during update
+          className="py-2 bg-gray-200 text-blue-500 rounded-lg transition-colors flex items-center justify-center hover:bg-gray-300 text-sm font-medium touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <List size={16} className="mr-1" />
           <span>Outro</span>
         </motion.button>
       </div>
+      {/* Error display */}
+      {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
     </div>
   );
 }

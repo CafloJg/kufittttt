@@ -2,47 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Adiciona no início ou em uma seção apropriada */
+html, body, #root {
+  height: 100%;
+  margin: 0; /* Garante que não haja margens padrão */
+  -webkit-tap-highlight-color: transparent; /* Remove highlight azul no toque em mobile */
+}
+
+/* Adiciona um scroll suave no body se necessário, mas o principal será no main */
+body {
+  overscroll-behavior-y: contain; /* Previne scroll "fora" do body em alguns casos */
+  /* overflow-y: auto !important; <-- Removido, já está em html,body */
+  /* -webkit-overflow-scrolling: touch !important; <-- Removido, já está em html,body */
+  /* Manter estilos base */
+  @apply bg-gray-50;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: env(safe-area-inset-top);
+  touch-action: manipulation; 
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  position: relative; 
+  z-index: 0; 
+  /* overflow: visible !important; <-- Remover, html/body controlam overflow */
+}
+
 @layer base {
   html {
     font-family: 'Nunito', system-ui, sans-serif;
-    height: 100%;
-    height: -webkit-fill-available;
-    height: 100dvh;
     -webkit-text-size-adjust: none;
     -webkit-tap-highlight-color: transparent;
-    overscroll-behavior-y: none;
-    touch-action: manipulation;
+    scroll-behavior: smooth;
+    /* height, min-height, overflow removidos/comentados */
   }
-  
+
   body {
-    height: 100%;
-    height: -webkit-fill-available;
-    height: 100dvh;
-    @apply bg-gray-50;
-    overscroll-behavior-y: none;
-    -webkit-overflow-scrolling: touch;
-    touch-action: manipulation;
-    user-select: none;
-    -webkit-font-smoothing: antialiased;
-    padding-bottom: env(safe-area-inset-bottom);
+    /* Propriedades movidas para regra global acima */
   }
 
   #root {
-    height: 100%;
-    height: -webkit-fill-available;
-    height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    overscroll-behavior-y: none;
+    /* Propriedades movidas para regra global acima */
   }
-  
+
+  /* Remover regras conflitantes de altura/viewport antigas */
+  /* :root { --vh: 1vh; } */
+  /* html { height: var(--viewport-height); min-height: -webkit-fill-available; } */
+  /* body { min-height: var(--viewport-height); min-height: -webkit-fill-available; } */
+
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Comfortaa', cursive;
   }
 
   /* Mobile optimizations */
   input, select, textarea {
-    @apply text-base; /* Prevent zoom on iOS */
+    @apply text-base;
     font-size: 16px !important;
     -webkit-appearance: none;
     appearance: none;
@@ -61,7 +77,6 @@
 
   /* Disable pull-to-refresh on iOS */
   body {
-    overscroll-behavior-y: none;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -70,12 +85,7 @@
     height: 100%;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: none;
-  }
-
-  /* Fix for iOS viewport height issues */
-  :root {
-    --vh: 1vh;
+    /* overscroll-behavior-y: none; <-- REMOVIDO */
   }
 
   /* Improve tap targets for mobile */
@@ -523,11 +533,10 @@
     }
     
     .mobile-content {
-      @apply flex-1 overflow-y-auto overscroll-contain relative;
-      padding-bottom: calc(5rem + env(safe-area-inset-bottom));
-      min-height: 100dvh;
-      min-height: -webkit-fill-available;
+      @apply flex-1 overflow-y-auto relative;
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      padding-bottom: calc(5rem + env(safe-area-inset-bottom));
     }
     
     .mobile-card {
@@ -904,3 +913,8 @@
 }
 
 /* Fim das camadas definidas */
+
+/* REMOVIDO definição antiga de .overflow-y-auto */
+/* .overflow-y-auto { ... } */
+
+/* ... resto do CSS ... */

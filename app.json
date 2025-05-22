@@ -16,7 +16,9 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kiifit.app"
+      "bundleIdentifier": "com.kiifit.app",
+      "buildNumber": "1.0.0",
+      "sku": "com.kiifit.app.ios"
     },
     "android": {
       "adaptiveIcon": {

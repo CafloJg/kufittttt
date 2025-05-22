@@ -167,6 +167,8 @@ export interface UserProfile {
   };
   level?: number;
   experience?: number;
+  dietHistory?: DietHistory;
+  shoppingList?: ShoppingList;
 }
 
 export interface DailyStats {
@@ -258,7 +260,7 @@ export interface Meal {
 export interface CustomGoal {
   id: string;
   userId: string;
-  type: 'nutrition' | 'hydration' | 'supplement' | 'restriction';
+  type: 'nutrition' | 'hydration' | 'supplement' | 'restriction' | 'weight';
   name: string;
   description?: string;
   target: number;
@@ -266,6 +268,7 @@ export interface CustomGoal {
   frequency: 'daily' | 'weekly' | 'monthly';
   startDate: string;
   endDate?: string;
+  duration?: number;
   progress: number;
   status: 'active' | 'completed' | 'failed';
   checkIns: {
@@ -275,6 +278,15 @@ export interface CustomGoal {
       mood?: 'great' | 'good' | 'okay' | 'bad';
       timestamp: string;
     };
+  };
+  metadata?: {
+    checkpoints?: number[];
+    distribution?: Array<{ meal: string; percentage: number }>;
+    examples?: string[];
+    sources?: string[];
+    isAutoUpdate?: boolean;
+    startValue?: number;
+    targetValue?: number;
   };
   createdAt: string;
   updatedAt: string;

@@ -2,6 +2,28 @@ import { doc, collection, query, where, getDocs, addDoc, updateDoc, getDoc } fro
 import { db } from '../firebase';
 import type { UserProfile, CustomGoal } from '../../types/user';
 
+// Helper function to remove undefined values recursively
+function removeUndefined(obj: any): any {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined).filter(item => item !== undefined);
+  }
+
+  const newObj: { [key: string]: any } = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const value = removeUndefined(obj[key]);
+      if (value !== undefined) {
+        newObj[key] = value;
+      }
+    }
+  }
+  return newObj;
+}
+
 export class GoalService {
   private static instance: GoalService;
 
@@ -126,7 +148,7 @@ export class GoalService {
     const goalsRef = collection(db, 'users', userId, 'goals');
     const now = new Date().toISOString();
 
-    const newGoal = {
+    const goalData = {
       ...goal,
       createdAt: now,
       updatedAt: now,
@@ -135,8 +157,12 @@ export class GoalService {
       checkIns: {}
     };
 
-    const docRef = await addDoc(goalsRef, newGoal);
-    return { id: docRef.id, ...newGoal };
+    // Clean the object before sending to Firestore
+    const cleanedGoalData = removeUndefined(goalData);
+
+    const docRef = await addDoc(goalsRef, cleanedGoalData);
+    // Return the cleaned data along with the new ID
+    return { id: docRef.id, ...cleanedGoalData }; 
   }
 
   async updateGoalProgress(
@@ -160,29 +186,30 @@ export class GoalService {
     // Calculate new progress
     const newProgress = this.calculateProgress(goal, value);
 
-    // Update goal document
-    await updateDoc(goalRef, {
+    // Prepare update data, ensuring checkIn details are not undefined
+    const updateData: Record<string, any> = {
       progress: newProgress,
       [`checkIns.${today}`]: {
         value,
-        notes,
-        mood,
+        // Only include notes and mood if they are provided
+        ...(notes && { notes }), 
+        ...(mood && { mood }), 
         timestamp: now
       },
       updatedAt: now,
       status: newProgress >= 100 ? 'completed' : 'active'
-    });
+    };
 
+    // Clean the update data as well (belt and suspenders)
+    const cleanedUpdateData = removeUndefined(updateData);
+
+    await updateDoc(goalRef, cleanedUpdateData);
+
+    // Return the updated check-in details
     return {
       goalId,
       progress: newProgress,
-      checkIn: {
-        date: today,
-        value,
-        notes,
-        mood,
-        timestamp: now
-      }
+      checkIn: cleanedUpdateData[`checkIns.${today}`] // Return the cleaned check-in
     };
   }
 

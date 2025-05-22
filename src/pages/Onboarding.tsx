@@ -4,7 +4,7 @@ import { ArrowLeft, Camera, Upload, X, Info } from 'lucide-react';
 import { auth, db, storage } from '../lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import type { UserProfile, OnboardingData, DietType, Gender, BudgetPreference, LifeContext } from '../types/user';
+import type { UserProfile, DietType, Gender, BudgetPreference, LifeContext } from '../types/user';
 import Slider from '../components/Slider';
 import { motion } from 'framer-motion';
 import Radio from '../components/Radio';
@@ -66,21 +66,28 @@ const DEFAULT_FORM_DATA = {
   photoURL: undefined as string | undefined
 };
 
+export interface OnboardingData {
+  gender: Gender | null;
+  age: number | null;
+  weight: number | null;
+  height: number | null;
+  dietType: DietType | null;
+}
+
 function Onboarding() {
   const navigate = useNavigate();
-  const [isLoading, setIsLoading] = useState(true);
-  const [data, setData] = useState<OnboardingData>({
-    step: 1,
-    totalSteps: 5,
-    formData: DEFAULT_FORM_DATA
-  });
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newIngredient, setNewIngredient] = useState('');
-  const [error, setError] = useState('');
   const [showDietInfo, setShowDietInfo] = useState(false);
   const [selectedDietInfo, setSelectedDietInfo] = useState<DietType | null>(null);
+  const [selectedObjective, setSelectedObjective] = useState<string | null>(null);
   
   useEffect(() => {
     const checkAuth = async () => {
@@ -96,32 +103,23 @@ function Onboarding() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
-    setData(prev => ({
+    setFormData(prev => ({
       ...prev,
-      formData: {
-        ...prev.formData,
-        [name]: type === 'number' ? (value ? Number(value) : undefined) : value
-      }
+      [name]: type === 'number' ? (value ? Number(value) : undefined) : value
     }));
   };
 
   const handleGenderSelect = (gender: Gender) => {
-    setData(prev => ({
+    setFormData(prev => ({
       ...prev,
-      formData: {
-        ...prev.formData,
-        gender
-      }
+      gender
     }));
   };
 
   const handleDietSelect = (dietType: DietType) => {
-    setData(prev => ({
+    setFormData(prev => ({
       ...prev,
-      formData: {
-        ...prev.formData,
-        dietType
-      }
+      dietType
     }));
   };
 
@@ -145,12 +143,9 @@ function Onboarding() {
       await uploadBytes(storageRef, file);
       const photoURL = await getDownloadURL(storageRef);
 
-      setData(prev => ({
+      setFormData(prev => ({
         ...prev,
-        formData: {
-          ...prev.formData,
-          photoURL
-        }
+        photoURL
       }));
     } catch (error) {
       console.error('Erro ao fazer upload da foto:', error);
@@ -170,8 +165,60 @@ function Onboarding() {
       age: data.age || null,
       height: data.height || null,
       weight: data.weight || null,
+      photoURL: data.photoURL || null,
       updatedAt: new Date().toISOString()
     };
+  };
+
+  const handleWeightChange = (value: number) => {
+    setFormData(prev => ({ ...prev, weight: value }));
+  };
+
+  const handleHeightChange = (value: number) => {
+    setFormData(prev => ({ ...prev, height: value }));
+  };
+
+  const handleDietTypeSelect = (type: DietType) => {
+    setSelectedDietInfo(type);
+    setFormData(prev => ({ ...prev, dietType: type }));
+  };
+
+  const handleObjectiveSelect = (objective: string) => {
+    setSelectedObjective(objective);
+  };
+
+  const handleNext = async () => {
+    if (currentStep < 5) {
+      setCurrentStep(prev => prev + 1);
+    } else {
+      try {
+        if (!auth.currentUser) return;
+        setIsSubmitting(true);
+        const userRef = doc(db, 'users', auth.currentUser.uid);
+        
+        console.log('Dados do formulário antes de sanitizar:', formData);
+        const sanitizedData = sanitizeDataForFirestore(formData);
+        console.log('Dados sanitizados:', sanitizedData);
+        
+        const finalDataToSend = {
+          ...sanitizedData,
+          'goals.type': selectedObjective,
+          completedOnboarding: true,
+          showTutorial: true,
+          updatedAt: new Date().toISOString()
+        };
+        console.log('Dados finais a serem enviados para Firestore:', finalDataToSend);
+        
+        await updateDoc(userRef, finalDataToSend);
+        
+        navigate('/dashboard');
+      } catch (error) {
+        console.error('Error saving profile:', error);
+        setError('Erro ao salvar perfil. Por favor, tente novamente.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
   };
 
   if (isLoading) {
@@ -183,13 +230,12 @@ function Onboarding() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 via-white to-gray-50">
-      <div className="max-w-lg mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="relative z-10 mb-12">
-          {data.step > 1 && (
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 via-white to-gray-50 flex flex-col">
+      <div className="max-w-lg mx-auto px-4 w-full flex flex-col flex-1">
+        <div className="relative z-10 mb-12 sticky top-0 bg-gradient-to-b from-white via-white to-transparent pt-4 pb-6">
+          {currentStep > 1 && (
             <button
-              onClick={() => setData(prev => ({ ...prev, step: prev.step - 1 }))}
+              onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
               className="absolute -left-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/80 rounded-xl transition-colors"
             >
               <ArrowLeft size={24} className="text-gray-600" />
@@ -199,15 +245,15 @@ function Onboarding() {
             <h1 className="text-3xl font-bold bg-gradient-to-r from-primary-500 to-secondary-500 bg-clip-text text-transparent">
               Configuração Inicial
             </h1>
-            <p className="text-gray-600 mt-2">Passo {data.step} de {data.totalSteps}</p>
+            <p className="text-gray-600 mt-2">Passo {currentStep} de 5</p>
             <div className="flex gap-2 mt-4 max-w-xs mx-auto">
               {[1, 2, 3, 4, 5].map((step) => (
                 <div
                   key={step}
                   className={`h-1.5 rounded-full flex-1 transition-all ${
-                    step === data.step
+                    step === currentStep
                       ? 'bg-gradient-to-r from-primary-500 to-secondary-500'
-                      : step < data.step
+                      : step < currentStep
                       ? 'bg-primary-200'
                       : 'bg-gray-200'
                   }`}
@@ -217,16 +263,8 @@ function Onboarding() {
           </div>
         </div>
 
-        {/* Background Decorations */}
-        <div className="fixed inset-0 pointer-events-none">
-          <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary-500/5 blur-3xl" />
-          <div className="absolute top-60 -left-40 w-[32rem] h-[32rem] rounded-full bg-secondary-500/5 blur-3xl" />
-        </div>
-
-        {/* Step Content */}
-        <div className="relative">
-          {/* Step 1: Basic Info */}
-          {data.step === 1 && (
+        <div className="relative flex-1 overflow-y-auto pb-20">
+          {currentStep === 1 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -246,7 +284,7 @@ function Onboarding() {
                   type="text"
                   id="name"
                   name="name"
-                  value={data.formData.name}
+                  value={formData.name}
                   onChange={handleInputChange}
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white/50 backdrop-blur-sm transition-all hover:bg-white"
                   required
@@ -261,7 +299,7 @@ function Onboarding() {
                   type="number"
                   id="age"
                   name="age"
-                  value={data.formData.age || ''}
+                  value={formData.age || ''}
                   onChange={handleInputChange}
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white/50 backdrop-blur-sm transition-all hover:bg-white"
                   required
@@ -272,11 +310,11 @@ function Onboarding() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Gênero
                 </label>
-                <Radio value={data.formData.gender} onChange={handleGenderSelect} />
+                <Radio value={formData.gender} onChange={(value: string) => handleGenderSelect(value as Gender)} />
               </div>
 
               <button
-                onClick={() => setData(prev => ({ ...prev, step: prev.step + 1 }))}
+                onClick={() => setCurrentStep(prev => Math.min(4, prev + 1))}
                 className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
               >
                 Continuar
@@ -284,8 +322,7 @@ function Onboarding() {
             </motion.div>
           )}
 
-          {/* Step 2: Physical Info */}
-          {data.step === 2 && (
+          {currentStep === 2 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -301,14 +338,14 @@ function Onboarding() {
                 <label htmlFor="height" className="block text-sm font-medium text-gray-700 mb-1">
                   Altura (cm)
                 </label>
-                <input
-                  type="number"
-                  id="height"
-                  name="height"
-                  value={data.formData.height || ''}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white/50 backdrop-blur-sm transition-all hover:bg-white"
-                  required
+                <Slider
+                  value={formData.height ?? 150}
+                  onChange={handleHeightChange}
+                  min={100}
+                  max={250}
+                  step={1}
+                  label="Altura"
+                  unit="cm"
                 />
               </div>
 
@@ -316,19 +353,19 @@ function Onboarding() {
                 <label htmlFor="weight" className="block text-sm font-medium text-gray-700 mb-1">
                   Peso (kg)
                 </label>
-                <input
-                  type="number"
-                  id="weight"
-                  name="weight"
-                  value={data.formData.weight || ''}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white/50 backdrop-blur-sm transition-all hover:bg-white"
-                  required
+                <Slider
+                  value={formData.weight ?? 70}
+                  onChange={handleWeightChange}
+                  min={30}
+                  max={200}
+                  step={0.5}
+                  label="Peso"
+                  unit="kg"
                 />
               </div>
 
               <button
-                onClick={() => setData(prev => ({ ...prev, step: prev.step + 1 }))}
+                onClick={() => setCurrentStep(prev => Math.min(5, prev + 1))}
                 className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
               >
                 Continuar
@@ -336,8 +373,7 @@ function Onboarding() {
             </motion.div>
           )}
 
-          {/* Step 3: Diet Preferences */}
-          {data.step === 3 && (
+          {currentStep === 3 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -364,12 +400,12 @@ function Onboarding() {
                     <button
                       key={value}
                       onClick={() => {
-                        handleDietSelect(value);
-                        setSelectedDietInfo(value);
+                        handleDietTypeSelect(value as DietType);
+                        setSelectedDietInfo(value as DietType);
                         setShowDietInfo(true);
                       }}
                       className={`relative py-4 px-4 rounded-xl border backdrop-blur-sm transition-all ${
-                        data.formData.dietType === value
+                        formData.dietType === value
                           ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent shadow-lg'
                           : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50 hover:bg-white'
                       }`}
@@ -378,7 +414,7 @@ function Onboarding() {
                       <Info 
                         size={16} 
                         className={`absolute top-2 right-2 ${
-                          data.formData.dietType === value ? 'text-white' : 'text-primary-500'
+                          formData.dietType === value ? 'text-white' : 'text-primary-500'
                         }`} 
                       />
                     </button>
@@ -386,7 +422,6 @@ function Onboarding() {
                 </div>
               </div>
 
-              {/* Diet Info Modal */}
               {showDietInfo && selectedDietInfo && (
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                   <div className="bg-white rounded-2xl max-w-md w-full p-6 relative">
@@ -425,18 +460,15 @@ function Onboarding() {
                     <button
                       key={allergy}
                       onClick={() => {
-                        setData(prev => ({
+                        setFormData(prev => ({
                           ...prev,
-                          formData: {
-                            ...prev.formData,
-                            allergies: prev.formData.allergies.includes(allergy)
-                              ? prev.formData.allergies.filter(a => a !== allergy)
-                              : [...prev.formData.allergies, allergy]
-                          }
+                          allergies: prev.allergies.includes(allergy)
+                            ? prev.allergies.filter(a => a !== allergy)
+                            : [...prev.allergies, allergy]
                         }));
                       }}
                       className={`py-3 px-4 rounded-xl border backdrop-blur-sm transition-all ${
-                        data.formData.allergies.includes(allergy)
+                        formData.allergies.includes(allergy)
                           ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent shadow-md'
                           : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50 hover:bg-white'
                       }`}
@@ -447,145 +479,18 @@ function Onboarding() {
                 </div>
               </div>
 
-              <button
-                onClick={() => setData(prev => ({ ...prev, step: prev.step + 1 }))}
-                className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
-              >
-                Continuar
-              </button>
+              <div className="bg-gradient-to-t from-white via-white to-transparent pt-6 pb-4">
+                <button
+                  onClick={() => setCurrentStep(prev => Math.min(4, prev + 1))}
+                  className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
+                >
+                  Continuar
+                </button>
+              </div>
             </motion.div>
           )}
 
-          {/* Step 4: Budget and Life Context */}
-          {data.step === 4 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-8"
-            >
-              <div className="text-center mb-8">
-                <h2 className="text-2xl font-semibold mb-2">Preferências de Orçamento</h2>
-                <p className="text-gray-600">Escolha opções que se encaixam no seu perfil</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Preferência de Orçamento
-                </label>
-                <div className="grid grid-cols-1 gap-3">
-                  <button
-                    onClick={() => setData(prev => ({
-                      ...prev,
-                      formData: { ...prev.formData, budgetPreference: 'low' }
-                    }))}
-                    className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                      data.formData.budgetPreference === 'low'
-                        ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                        : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                    }`}
-                  >
-                    <div className="font-semibold mb-1">Econômico</div>
-                    <div className="text-sm opacity-80">Foco em opções acessíveis e econômicas</div>
-                  </button>
-
-                  <button
-                    onClick={() => setData(prev => ({
-                      ...prev,
-                      formData: { ...prev.formData, budgetPreference: 'medium' }
-                    }))}
-                    className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                      data.formData.budgetPreference === 'medium'
-                        ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                        : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                    }`}
-                  >
-                    <div className="font-semibold mb-1">Moderado</div>
-                    <div className="text-sm opacity-80">Equilíbrio entre custo e qualidade</div>
-                  </button>
-
-                  <button
-                    onClick={() => setData(prev => ({
-                      ...prev,
-                      formData: { ...prev.formData, budgetPreference: 'high' }
-                    }))}
-                    className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                      data.formData.budgetPreference === 'high'
-                        ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                        : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                    }`}
-                  >
-                    <div className="font-semibold mb-1">Premium</div>
-                    <div className="text-sm opacity-80">Prioridade em produtos de alta qualidade</div>
-                  </button>
-                </div>
-              </div>
-
-              {data.formData.gender === 'feminino' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contexto de Vida
-                  </label>
-                  <div className="grid grid-cols-1 gap-3">
-                    <button
-                      onClick={() => setData(prev => ({
-                        ...prev,
-                        formData: { ...prev.formData, lifeContext: 'maternity' }
-                      }))}
-                      className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                        data.formData.lifeContext === 'maternity'
-                          ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                          : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                      }`}
-                    >
-                      <div className="font-semibold mb-1">Maternidade</div>
-                      <div className="text-sm opacity-80">Gestante ou amamentando</div>
-                    </button>
-
-                    <button
-                      onClick={() => setData(prev => ({
-                        ...prev,
-                        formData: { ...prev.formData, lifeContext: 'home' }
-                      }))}
-                      className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                        data.formData.lifeContext === 'home'
-                          ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                          : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                      }`}
-                    >
-                      <div className="font-semibold mb-1">Dona de Casa</div>
-                      <div className="text-sm opacity-80">Foco em praticidade e organização</div>
-                    </button>
-
-                    <button
-                      onClick={() => setData(prev => ({
-                        ...prev,
-                        formData: { ...prev.formData, lifeContext: 'none' }
-                      }))}
-                      className={`p-4 rounded-xl border backdrop-blur-sm transition-all ${
-                        data.formData.lifeContext === 'none'
-                          ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white border-transparent'
-                          : 'border-gray-200 text-gray-700 hover:border-primary-500 bg-white/50'
-                      }`}
-                    >
-                      <div className="font-semibold mb-1">Nenhum dos Anteriores</div>
-                      <div className="text-sm opacity-80">Plano padrão personalizado</div>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={() => setData(prev => ({ ...prev, step: prev.step + 1 }))}
-                className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
-              >
-                Continuar
-              </button>
-            </motion.div>
-          )}
-
-          {/* Step 5: Profile Photo */}
-          {data.step === 5 && (
+          {currentStep === 4 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -597,9 +502,9 @@ function Onboarding() {
                 <p className="text-gray-600">Personalize seu perfil com uma foto</p>
                 
                 <div className="w-48 h-48 bg-gradient-to-br from-primary-50 to-primary-100 rounded-full mx-auto relative overflow-hidden shadow-xl hover:shadow-2xl transition-all transform hover:scale-105 cursor-pointer">
-                  {data.formData.photoURL ? (
+                  {formData.photoURL ? (
                     <img
-                      src={data.formData.photoURL}
+                      src={formData.photoURL}
                       alt="Profile"
                       className="w-full h-full object-cover rounded-full transition-transform hover:scale-110"
                     />
@@ -637,7 +542,6 @@ function Onboarding() {
                   <span>{isUploading ? 'Enviando...' : 'Alterar foto'}</span>
                 </label>
                 
-                {/* Make the profile image clickable to trigger file upload */}
                 <div 
                   onClick={() => document.getElementById('photo-upload')?.click()}
                   className="absolute inset-0 top-[120px] w-48 h-48 mx-auto cursor-pointer"
@@ -650,32 +554,55 @@ function Onboarding() {
                   </div>
                 )}
               </div>
-
-              <button
-                onClick={async () => {
-                  if (!auth.currentUser) return;
-                  setIsSubmitting(true);
-                  try {
-                    const userRef = doc(db, 'users', auth.currentUser.uid);
-                    await updateDoc(userRef, {
-                      ...sanitizeDataForFirestore(data.formData),
-                      completedOnboarding: true,
-                      showTutorial: true, // Only set to true after onboarding is completed
-                      updatedAt: new Date().toISOString()
-                    });
-                    navigate('/dashboard');
-                  } catch (error) {
-                    console.error('Error saving profile:', error);
-                    setError('Erro ao salvar perfil. Por favor, tente novamente.');
-                  } finally {
-                    setIsSubmitting(false);
-                  }
-                }}
-                disabled={isSubmitting}
-                className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:transform-none disabled:hover:shadow-none"
+              
+              <button 
+                onClick={() => setCurrentStep(5)} 
+                className="w-full py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/20 hover:shadow-xl hover:shadow-primary-500/30 transform hover:-translate-y-0.5 transition-all"
               >
-                {isSubmitting ? 'Salvando...' : 'Concluir Cadastro'}
+                Continuar
               </button>
+            </motion.div>
+          )}
+
+          {currentStep === 5 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-10"
+            >
+              <div className="flex flex-col items-center p-6 bg-white rounded-xl shadow-sm">
+                <h2 className="text-xl font-semibold mb-4">Defina seu Objetivo Principal</h2>
+                <p className="text-gray-600 mb-6">Escolha o que deseja alcançar com seu plano alimentar</p>
+                
+                <div className="grid gap-4 w-full">
+                  {[
+                    { id: 'loss', name: 'Perda de Peso', icon: 'scale-down', description: 'Reduzir gordura corporal' },
+                    { id: 'gain', name: 'Ganho de Massa', icon: 'trending-up', description: 'Aumentar massa muscular' },
+                    { id: 'maintenance', name: 'Manutenção', icon: 'activity', description: 'Manter o peso atual' }
+                  ].map(objective => (
+                    <button
+                      key={objective.id}
+                      onClick={() => handleObjectiveSelect(objective.id)}
+                      className={`flex items-center p-4 border rounded-lg ${selectedObjective === objective.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}
+                    >
+                      <div className="mr-4">[{objective.icon}]</div> 
+                      <div className="text-left">
+                        <h3 className="font-medium">{objective.name}</h3>
+                        <p className="text-sm text-gray-500">{objective.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                
+                <button 
+                  className="mt-6 w-full py-3 bg-primary-500 text-white rounded-xl disabled:bg-gray-300"
+                  disabled={!selectedObjective || isSubmitting}
+                  onClick={handleNext}
+                >
+                  {isSubmitting ? 'Salvando...' : 'Finalizar Configuração'}
+                </button>
+              </div>
             </motion.div>
           )}
         </div>

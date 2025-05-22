@@ -4,6 +4,28 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useUser } from './UserContext';
 import type { CustomGoal } from '../types/user';
 
+// Helper function to remove undefined values recursively
+function removeUndefined(obj: any): any {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined).filter(item => item !== undefined);
+  }
+
+  const newObj: { [key: string]: any } = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const value = removeUndefined(obj[key]);
+      if (value !== undefined) {
+        newObj[key] = value;
+      }
+    }
+  }
+  return newObj;
+}
+
 interface GoalsContextType {
   goals: CustomGoal[];
   isLoading: boolean;
@@ -162,14 +184,17 @@ export function GoalsProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString(),
       };
 
+      // Limpar os dados para remover valores undefined antes de enviar para o Firestore
+      const cleanedGoal = removeUndefined(newGoal);
+      
       // Update user document with new goal
       await updateDoc(userRef, {
-        [`goals.customGoals`]: [...currentGoals, newGoal],
+        [`goals.customGoals`]: [...currentGoals, cleanedGoal],
         'goals.updatedAt': new Date().toISOString()
       });
 
       // Update local state
-      setGoals(prev => [...prev, newGoal as CustomGoal]);
+      setGoals(prev => [...prev, cleanedGoal as CustomGoal]);
     } catch (err) {
       console.error('Error creating goal:', err);
       setError(err instanceof Error ? err.message : 'Erro ao criar meta');
@@ -228,13 +253,16 @@ export function GoalsProvider({ children }: { children: ReactNode }) {
         } : g
       );
 
+      // Limpar os dados para remover valores undefined antes de enviar para o Firestore
+      const cleanedGoals = removeUndefined(updatedGoals);
+
       await updateDoc(userRef, {
-        'goals.customGoals': updatedGoals,
+        'goals.customGoals': cleanedGoals,
         'goals.updatedAt': new Date().toISOString()
       });
 
       // Update local state
-      setGoals(updatedGoals);
+      setGoals(cleanedGoals);
     } catch (err) {
       console.error('Error updating goal progress:', err);
       setError(err instanceof Error ? err.message : 'Erro ao atualizar progresso');
@@ -258,13 +286,16 @@ export function GoalsProvider({ children }: { children: ReactNode }) {
       const currentData = userDoc.data();
       const updatedGoals = currentData.goals?.customGoals?.filter((g: any) => g.id !== goalId) || [];
 
+      // Limpar os dados para remover valores undefined antes de enviar para o Firestore
+      const cleanedGoals = removeUndefined(updatedGoals);
+
       await updateDoc(userRef, {
-        'goals.customGoals': updatedGoals,
+        'goals.customGoals': cleanedGoals,
         'goals.updatedAt': new Date().toISOString()
       });
 
       // Update local state
-      setGoals(updatedGoals);
+      setGoals(cleanedGoals);
     } catch (err) {
       console.error('Error deleting goal:', err);
       setError(err instanceof Error ? err.message : 'Erro ao excluir meta');

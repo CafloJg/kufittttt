@@ -11,6 +11,7 @@ interface UserContextType {
   isLoading: boolean;
   error: string | null;
   refreshUserData: () => Promise<UserProfile | null>;
+  isAuthLoading: boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -18,6 +19,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const refreshInProgressRef = useRef(false);
@@ -46,7 +48,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             setUser(userDoc.data() as UserProfile);
             const userData = userDoc.data() as UserProfile;
             setUser(userData);
-            return userData; // Success, return the user data
+            return userData;
           } else {
             setError('Perfil não encontrado');
             setUser(null);
@@ -56,7 +58,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
           retryCount++;
           console.warn(`Error fetching user data (attempt ${retryCount}/${maxRetries}):`, fetchError);
           
-          // If it's an offline error, don't retry
           if (fetchError instanceof Error && 
               (fetchError.message.includes('offline') || 
                fetchError.message.includes('client is offline'))) {
@@ -66,10 +67,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
           
           if (retryCount > maxRetries) {
-            throw fetchError; // Rethrow after max retries
+            throw fetchError;
           }
           
-          // Wait before retrying with exponential backoff
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
         }
       }
@@ -85,15 +85,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUserData = useCallback(async (): Promise<UserProfile | null> => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) return null;
 
-    // Prevent concurrent refreshes
     if (refreshInProgressRef.current) {
       console.log('Refresh already in progress, skipping');
       return user;
     }
     
-    // Check network status before attempting to refresh
     if (!navigator.onLine) {
       console.warn('Cannot refresh user data while offline');
       return null;
@@ -101,11 +99,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     try {
       refreshInProgressRef.current = true;
-      // console.log('Refreshing user data...');
       const userData = await loadUserData(auth.currentUser.uid);
       
       if (userData) {
-        // Add refreshUserData function to user object
         setUser({
           ...userData,
           refreshUserData
@@ -123,11 +119,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
+      setIsAuthLoading(true);
+      
       if (authUser) {
         try {
           const userData = await loadUserData(authUser.uid);
           if (userData) {
-            // Add refreshUserData function to user object
             setUser({
               ...userData,
               refreshUserData
@@ -135,12 +132,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
         } catch (error) {
           console.error('Error loading user data on auth state change:', error);
-          // Still set loading to false even if there's an error
+        } finally {
+          setIsAuthLoading(false);
           setIsLoading(false);
         }
       } else {
         setUser(null);
         setError(null);
+        setIsAuthLoading(false);
         setIsLoading(false);
       }
     });
@@ -149,7 +148,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <UserContext.Provider value={{ user, isLoading, error, refreshUserData }}>
+    <UserContext.Provider value={{ user, isLoading, error, refreshUserData, isAuthLoading }}>
       {children}
     </UserContext.Provider>
   );

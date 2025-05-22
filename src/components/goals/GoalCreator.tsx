@@ -5,6 +5,28 @@ import type { CustomGoal } from '../../types/user';
 import { useUser } from '../../context/UserContext';
 import { useGoals } from '../../context/GoalsContext';
 
+interface GoalSuggestion {
+  name: string;
+  description: string;
+  target: number;
+  unit: string;
+  duration: number;
+  type: 'weight' | 'water' | 'protein' | 'nutrition';
+  checkpoints?: number[];
+  distribution?: Array<{ meal: string; percentage: number }>;
+  examples?: string[];
+  sources?: string[];
+}
+
+interface GoalTypeDefinition {
+  id: 'weight' | 'water' | 'protein' | 'nutrition';
+  name: string;
+  description: string;
+  icon: React.ElementType;
+  color: string;
+  suggestions: GoalSuggestion[];
+}
+
 interface GoalCreatorProps {
   onCreateGoal: (goal: Partial<CustomGoal>) => Promise<void>;
   userWeight?: number;
@@ -13,11 +35,11 @@ interface GoalCreatorProps {
 function GoalCreator({ onCreateGoal, userWeight }: GoalCreatorProps) {
   const { user } = useUser();
   const { goals } = useGoals();
-  const [selectedType, setSelectedType] = useState<'weight' | 'water' | 'protein' | 'nutrition' | null>(null);
+  const [selectedType, setSelectedType] = useState<GoalTypeDefinition['id'] | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const goalTypes = [
+  const goalTypes: GoalTypeDefinition[] = [
     {
       id: 'weight',
       name: 'Meta de Peso',
@@ -176,36 +198,39 @@ function GoalCreator({ onCreateGoal, userWeight }: GoalCreatorProps) {
     }
   ];
 
-  const handleCreateGoal = async (suggestion: any) => {
+  const handleCreateGoal = async (suggestion: GoalSuggestion) => {
     setIsCreating(true);
     setError(null);
     try {
-      // Check if a goal with the same name and type already exists
       const existingGoal = goals?.find(goal => 
         goal.status === 'active' && 
-        goal.type === selectedType &&
+        goal.type === suggestion.type &&
         goal.name.toLowerCase() === suggestion.name.toLowerCase()
       );
       
       if (existingGoal) {
         setError(`Você já tem uma meta ativa chamada "${suggestion.name}"`);
+        setIsCreating(false);
         return;
       }
       
-      // Ensure all required fields are present
-      const metadata = {
+      const metadata: Record<string, any> = {
         checkpoints: suggestion.checkpoints || [],
         distribution: suggestion.distribution || [],
         examples: suggestion.examples || [],
         sources: suggestion.sources || [],
         isAutoUpdate: suggestion.type !== 'weight',
-        startValue: suggestion.type === 'weight' ? user?.weight || 0 : 0,
-        targetValue: suggestion.type === 'weight' ? suggestion.target || 0 : 0
       };
       
-      // Create a complete goal object with all required fields
+      if (suggestion.type === 'weight') {
+        metadata.startValue = user?.weight || 0;
+        metadata.targetValue = suggestion.target || 0;
+      }
+      
+      const goalTypeForCustomGoal = suggestion.type === 'water' ? 'hydration' : suggestion.type;
+
       await onCreateGoal({
-        type: selectedType!,
+        type: goalTypeForCustomGoal as CustomGoal['type'],
         name: suggestion.name,
         description: suggestion.description,
         target: suggestion.target || 0,
@@ -218,11 +243,12 @@ function GoalCreator({ onCreateGoal, userWeight }: GoalCreatorProps) {
         checkIns: {},
         metadata
       });
+      setSelectedType(null);
     } catch (error) {
       console.error('Error creating goal:', error);
+      setError(error instanceof Error ? error.message : 'Erro desconhecido ao criar meta');
     } finally {
       setIsCreating(false);
-      setSelectedType(null);
     }
   };
 
@@ -243,126 +269,110 @@ function GoalCreator({ onCreateGoal, userWeight }: GoalCreatorProps) {
               return (
                 <motion.button
                   key={type.id}
-                  onClick={() => setSelectedType(type.id as any)}
+                  onClick={() => setSelectedType(type.id as GoalTypeDefinition['id'])}
                   className="flex items-center gap-4 p-6 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <div className={`w-14 h-14 ${type.color} rounded-xl flex items-center justify-center text-white`}>
-                    <Icon size={24} />
+                  <div className={`w-10 h-10 ${type.color} rounded-lg flex items-center justify-center`}>
+                    <Icon className="text-white" size={20} />
                   </div>
-                  <div className="flex-1 text-left">
-                    <h3 className="font-semibold text-lg">{type.name}</h3>
-                    <p className="text-gray-600">{type.description}</p>
+                  <div className="text-left">
+                    <h3 className="font-semibold">{type.name}</h3>
+                    <p className="text-sm text-gray-500">{type.description}</p>
                   </div>
-                  <ChevronRight className="text-gray-400" size={20} />
+                  <ChevronRight size={20} className="ml-auto text-gray-400" />
                 </motion.button>
               );
             })}
           </div>
         </>
       ) : (
-        <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSelectedType(null)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ChevronRight className="rotate-180" size={20} />
-            </button>
-            <h2 className="text-xl font-semibold">
-              {goalTypes.find(t => t.id === selectedType)?.name}
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium">Sugestões de Metas</h3>
+        <div className="space-y-4">
+          <button 
+            onClick={() => setSelectedType(null)}
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-2"
+          >
+            <ChevronRight className="rotate-180" size={20} />
+            Voltar
+          </button>
+          <h2 className="text-xl font-semibold mb-4">
+            Sugestões para {goalTypes.find(t => t.id === selectedType)?.name}
+          </h2>
+          <div className="space-y-4 overflow-y-auto pr-1">
             {goalTypes
               .find(t => t.id === selectedType)
               ?.suggestions.map((suggestion, index) => (
-                <motion.button
+                <motion.div
                   key={index}
-                  onClick={() => handleCreateGoal(suggestion)}
-                  disabled={isCreating}
-                  className={`w-full p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-all text-left ${
-                    isCreating ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-md transition-all"
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
                 >
-                  <h4 className="font-medium text-lg mb-2">{suggestion.name}</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {suggestion.description}
-                  </p>
-                  
-                  {/* Meta-specific details */}
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold flex-1 mr-2">{suggestion.name}</h3>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateGoal(suggestion);
+                      }}
+                      disabled={isCreating}
+                      className="flex items-center gap-1 text-sm text-primary-500 font-medium hover:text-primary-600 disabled:opacity-50 disabled:cursor-wait shrink-0"
+                    >
+                      {isCreating ? (
+                        <div className="w-4 h-4 border-2 border-primary-200 border-t-primary-500 rounded-full animate-spin"></div>
+                      ) : (
+                        <Plus size={16} />
+                      )}
+                      Começar
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1 mb-3">{suggestion.description}</p>
                   {suggestion.checkpoints && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Checkpoints Diários:</p>
-                      <div className="flex gap-2">
-                        {suggestion.checkpoints.map((checkpoint: number, i: number) => (
-                          <div key={i} className="px-3 py-1 bg-cyan-50 rounded-full text-xs text-cyan-600">
-                            {checkpoint}ml
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {suggestion.distribution && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Distribuição:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {suggestion.distribution.map((dist: any, i: number) => (
-                          <div key={i} className="flex justify-between text-xs">
-                            <span className="text-gray-600">{dist.meal}</span>
-                            <span className="font-medium">{dist.percentage}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {suggestion.examples && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Exemplos:</p>
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-500 font-medium mb-1">Checkpoints Diários:</p>
                       <div className="flex flex-wrap gap-2">
-                        {suggestion.examples.map((example: string, i: number) => (
-                          <span key={i} className="px-3 py-1 bg-green-50 rounded-full text-xs text-green-600">
-                            {example}
+                        {suggestion.checkpoints.map((cp: number) => (
+                          <span key={cp} className="text-xs bg-cyan-50 text-cyan-600 px-2 py-0.5 rounded-full font-medium">
+                            {cp}{suggestion.unit || 'ml'}
                           </span>
                         ))}
                       </div>
                     </div>
                   )}
-
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                    <div className="text-sm text-gray-600">
-                      Duração: {suggestion.duration} dias
-                    </div>
-                    {isCreating ? (
-                      <div className="flex items-center gap-2 text-gray-400">
-                        <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                        <span className="font-medium">Criando...</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-primary-500">
-                        <Plus size={18} />
-                        <span className="font-medium">Começar</span>
-                      </div>
-                    )}
-                  </div>
-                </motion.button>
+                  {suggestion.distribution && (
+                     <div className="mt-2">
+                       <p className="text-xs text-gray-500 font-medium mb-1">Distribuição:</p>
+                       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                         {suggestion.distribution.map((dist, i) => (
+                           <div key={i} className="flex justify-between text-xs">
+                             <span className="text-gray-600">{dist.meal}</span>
+                             <span className="font-medium">{dist.percentage}%</span>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                   {suggestion.examples && (
+                     <div className="mt-2">
+                       <p className="text-xs text-gray-500 font-medium mb-1">Exemplos:</p>
+                       <div className="flex flex-wrap gap-2">
+                         {suggestion.examples.map((example, i) => (
+                           <span key={i} className="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium">
+                             {example}
+                           </span>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                  {suggestion.duration && (
+                     <p className="text-xs text-gray-500 mt-3">Duração: {suggestion.duration} dias</p>
+                  )}
+                </motion.div>
               ))}
-          </div>
-
-          <div className="mt-6">
-            <button
-              onClick={() => setSelectedType(null)}
-              className="w-full py-3 text-gray-600 hover:text-gray-800"
-            >
-              Voltar
-            </button>
           </div>
         </div>
       )}

@@ -73,7 +73,8 @@ function App() {
     };
   }, []);
 
-  // Prevent double-tap zoom on iOS
+  // COMENTANDO useEffect que previne double-tap zoom
+  /*
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length > 1) {
@@ -87,8 +88,10 @@ function App() {
       document.removeEventListener('touchstart', handleTouchStart);
     };
   }, []);
+  */
 
-  // Prevent pull-to-refresh on mobile
+  // COMENTANDO useEffect que previne pull-to-refresh
+  /*
   useEffect(() => {
     const preventPullToRefresh = (e: TouchEvent) => {
       const touchY = e.touches[0].clientY;
@@ -105,6 +108,7 @@ function App() {
       document.removeEventListener('touchmove', preventPullToRefresh);
     };
   }, []);
+  */
 
   // Add network error handler
   useEffect(() => {
@@ -209,8 +213,7 @@ function App() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data() as UserProfile;
-          // Only show tutorial after onboarding is completed for the first time
-          setShowTutorial(userData.completedOnboarding && userData.showTutorial);
+          setShowTutorial(userData.completedOnboarding && (userData.showTutorial ?? false));
 
           // Set up daily reset after confirming user data
           const now = new Date();
@@ -221,14 +224,12 @@ function App() {
           const timeUntilMidnight = tomorrow.getTime() - now.getTime();
 
           // Check if we need to reset now
-          if (userData?.lastCheckIn) {
-            // Always create a fresh Date object
+          const lastCheckInString = userData?.dailyStreak?.lastCheckIn;
+          if (lastCheckInString) {
             const now = new Date();
-            
             let lastCheckDate: Date;
             try {
-              lastCheckDate = new Date(userData.lastCheckIn);
-              // Check if the date is valid
+              lastCheckDate = new Date(lastCheckInString);
               if (isNaN(lastCheckDate.getTime())) {
                 console.warn('Invalid lastCheckIn date, using current date');
                 lastCheckDate = new Date();
@@ -238,25 +239,30 @@ function App() {
               lastCheckDate = new Date();
             }
             
-            // If last check-in was not today, trigger auto check-in
             if (lastCheckDate.getDate() !== now.getDate() ||
                 lastCheckDate.getMonth() !== now.getMonth() ||
                 lastCheckDate.getFullYear() !== now.getFullYear()) {
-              await resetDailyStats(user.uid); // Reset stats first
+              console.log('Triggering daily reset and streak update (resetDailyStats commented)');
               
-              // Update check-in streak
               const yesterday = new Date(now);
               yesterday.setDate(yesterday.getDate() - 1);
               
-              // Calculate streak based on yesterday's date
+              const currentStreak = userData?.dailyStreak?.currentStreak || 0;
               const streak = lastCheckDate.getDate() === yesterday.getDate() && 
                              lastCheckDate.getMonth() === yesterday.getMonth() && 
                              lastCheckDate.getFullYear() === yesterday.getFullYear() ? 
-                (userData.checkInStreak || 0) + 1 : 1;
+                currentStreak + 1 : 1;
+
+              const newDailyStreak = { 
+                ...(userData.dailyStreak || {}),
+                lastCheckIn: new Date().toISOString(),
+                currentStreak: streak,
+                longestStreak: Math.max(userData?.dailyStreak?.longestStreak || 0, streak),
+                totalCheckIns: (userData?.dailyStreak?.totalCheckIns || 0) + 1
+              };
 
               await updateDoc(doc(db, 'users', user.uid), {
-                lastCheckIn: new Date().toISOString(),
-                checkInStreak: streak,
+                dailyStreak: newDailyStreak,
                 updatedAt: new Date().toISOString(),
                 lastDietReset: new Date().toISOString()
               });
@@ -340,65 +346,43 @@ function App() {
   }
 
   return (
-    <GlobalErrorBoundary
-      onError={(error, errorInfo) => {
-        // Enviar o erro para um serviço de monitoramento
-        console.error('Global error caught:', error, errorInfo);
-        reportError(error, {
-          context: 'GlobalErrorBoundary',
-          componentStack: errorInfo.componentStack,
-          severity: 'critical'
-        });
-      }}
-      onReset={() => window.location.reload()}
-    >
+    <ErrorBoundary fallback={<ErrorFallback error={null} resetErrorBoundary={() => window.location.reload()} />}>
       <QueryClientProvider client={queryClient}>
-        <ErrorProvider>
-          <BrowserRouter>
-            <ToastProvider>
-              <ConfirmationProvider>
-                <UserProvider>
-                  <DietProvider>
-                    <GoalsProvider>
-                      <ImageProvider>
-                        <div className="min-h-[100vh] min-h-[calc(var(--vh,1vh)*100)] bg-gray-50 flex flex-col overscroll-none pb-safe-bottom">
-                          {showTutorial === true && <Tutorial onComplete={() => setShowTutorial(false)} />}
+        <BrowserRouter basename="/">
+          <ErrorProvider>
+            <UserProvider>
+              <DietProvider>
+                <GoalsProvider>
+                  <ImageProvider>
+                    <ToastProvider>
+                      <ConfirmationProvider>
+                        <NetworkStatus />
+                        <GlobalErrorBoundary>
                           <Routes>
-                            <Route path="/" element={<Navigate to="/login" replace />} />
+                            <Route path="/" element={<Navigate to="/dashboard" replace />} />
                             <Route path="/login" element={<Login />} />
                             <Route path="/register" element={<Register />} />
                             <Route path="/reset-password" element={<ResetPassword />} />
                             <Route path="/onboarding" element={<Onboarding />} />
                             <Route path="/dashboard" element={<Dashboard />} />
                             <Route path="/goals" element={<Goals />} />
-                            <Route path="/diet" element={
-                              <ErrorBoundary
-                                fallback={
-                                  <ErrorFallback 
-                                    error={new Error("Ocorreu um erro na página de dieta")} 
-                                    resetErrorBoundary={() => window.location.reload()} 
-                                  />
-                                }
-                              >
-                                <Diet />
-                              </ErrorBoundary>
-                            } />
+                            <Route path="/diet" element={<Diet />} />
                             <Route path="/chat" element={<Chat />} />
                             <Route path="/admin" element={<Admin />} />
                             <Route path="/profile" element={<Profile onRestartTutorial={handleRestartTutorial} />} />
+                            <Route path="*" element={<Navigate to="/dashboard" replace />} />
                           </Routes>
-                          <NetworkStatus />
-                        </div>
-                      </ImageProvider>
-                    </GoalsProvider>
-                  </DietProvider>
-                </UserProvider>
-              </ConfirmationProvider>
-            </ToastProvider>
-          </BrowserRouter>
-        </ErrorProvider>
+                        </GlobalErrorBoundary>
+                      </ConfirmationProvider>
+                    </ToastProvider>
+                  </ImageProvider>
+                </GoalsProvider>
+              </DietProvider>
+            </UserProvider>
+          </ErrorProvider>
+        </BrowserRouter>
       </QueryClientProvider>
-    </GlobalErrorBoundary>
+    </ErrorBoundary>
   );
 }
 

@@ -51,13 +51,14 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
     const checkAvailability = () => {
       const now = new Date();
 
-      if (!userData.lastCheckIn) {
+      const lastCheckInString = userData?.dailyStreak?.lastCheckIn;
+      if (!lastCheckInString) {
         setCanCheck(true);
         setIsCompleted(false);
         return;
       }
 
-      const lastCheckDate = new Date(userData.lastCheckIn);
+      const lastCheckDate = new Date(lastCheckInString);
       const canCheckIn = !isSameDay(lastCheckDate, now) && !checkInInProgressRef.current;
       const completedToday = isSameDay(lastCheckDate, now);
       
@@ -79,7 +80,7 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
     const interval = setInterval(checkAvailability, 60000);
     
     return () => clearInterval(interval);
-  }, [userData.lastCheckIn]);
+  }, [userData?.dailyStreak?.lastCheckIn]);
 
   useEffect(() => {
     // Generate personalized daily tip
@@ -96,80 +97,51 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
   }, []);
 
   const calculateReward = () => {
-    let coins = 10; // Base reward of 10 coins per day
-    
-    if (userData.checkInStreak) {
-      if (userData.checkInStreak >= 30) coins += 20;
-      else if (userData.checkInStreak >= 7) coins += 10;
-      else if (userData.checkInStreak >= 3) coins += 5;
-    }
+    let coins = 10; // Base reward
+    const currentStreak = userData?.dailyStreak?.currentStreak || 0;
+    if (currentStreak >= 30) coins += 20;
+    else if (currentStreak >= 7) coins += 10;
+    else if (currentStreak >= 3) coins += 5;
     
     return coins;
   };
 
-  // Função de check-in com reinicialização completa das metas
+  // Função de check-in SIMPLIFICADA
   const handleCheckIn = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!user || isChecking || isCompleted || checkInInProgressRef.current) {
-      console.log(`Cannot check in: user=${!!user}, isCompleted=${isCompleted}, isChecking=${isChecking}, checkInInProgress=${checkInInProgressRef.current}`);
+    if (!user || isChecking || isCompleted || checkInInProgressRef.current || !navigator.onLine) {
+      if (!navigator.onLine) {
+        setError('Você está offline. Verifique sua conexão com a internet e tente novamente.');
+      } else {
+        console.log(`Cannot check in: user=${!!user}, isCompleted=${isCompleted}, isChecking=${isChecking}, checkInInProgress=${checkInInProgressRef.current}`);
+      }
       return;
     }
     
-    // Set ref to prevent concurrent check-ins
     checkInInProgressRef.current = true;
-    
-    // Check if online before proceeding
-    if (!navigator.onLine) {
-      setError(new Error('Você está offline. Verifique sua conexão com a internet e tente novamente.'));
-      checkInInProgressRef.current = false;
-      return;
-    }
-    
     setIsChecking(true);
     setError(null);
     
     try {
-      // Call the onCheckIn function passed from parent
+      // Chamar APENAS a função passada pelo pai (Dashboard)
+      await onCheckIn(); 
       
-      // Primeiro, reiniciar completamente as metas e estatísticas diárias
-      if (user.uid) {
-        try {
-          await resetDailyStats(user.uid);
-        } catch (resetError) {
-          console.error('Error resetting daily stats during check-in:', resetError);
-        }
-      }
-      
-      setIsCompleted(true); // Mark as completed immediately for UI feedback
-      await onCheckIn();
-      
-      // Refresh user data to update dashboard
-      if (user.refreshUserData) {
-        try {
-          await user.refreshUserData();
-        } catch (refreshError) {
-          console.warn('Error refreshing user data after check-in:', refreshError);
-        }
-      }
-      
-      console.log('Daily stats reset and check-in completed successfully');
-      console.log('Check-in completed successfully');
-      
-      // Show reward screen after successful check-in
-      setShowReward(true);
-      
-      // Set earned coins and mark as completed for UI feedback
+      // UI Update otimista (pode ser mantido ou removido dependendo do fluxo desejado)
+      setIsCompleted(true); 
       setEarnedCoins(calculateReward());
-      setIsCompleted(true);
+      setShowReward(true); 
+      
     } catch (error) {
       console.error('Error during check-in:', error);
       setError(error instanceof Error ? error.message : 'Erro ao fazer check-in. Tente novamente.');
+      // Reverter UI Otimista se necessário
+      setIsCompleted(false);
+      setShowReward(false);
     } finally {
       setIsChecking(false);
-      // Reset the ref after a short delay to prevent rapid re-clicks
       setTimeout(() => {
         checkInInProgressRef.current = false;
-      }, 500);
+      }, 500); 
     }
   };
 
@@ -198,7 +170,7 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
               <Star className="text-primary-500 mx-auto mb-2" size={24} />
               <p className="text-sm font-medium">Sequência</p>
               <p className="text-xl font-bold text-primary-500">
-                {userData.checkInStreak} dias
+                {userData?.dailyStreak?.currentStreak ?? 0} Dias
               </p>
             </div>
             <div className="p-4 bg-primary-50 rounded-xl">
@@ -210,7 +182,7 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
               <Target className="text-primary-500 mx-auto mb-2" size={24} />
               <p className="text-sm font-medium">Próxima Meta</p>
               <p className="text-xl font-bold text-primary-500">
-                {userData.checkInStreak >= 30 ? '90' : userData.checkInStreak >= 7 ? '30' : '7'}
+                {(userData?.dailyStreak?.currentStreak ?? 0) >= 30 ? '90' : (userData?.dailyStreak?.currentStreak ?? 0) >= 7 ? '30' : '7'}
               </p>
             </div>
           </div>
@@ -275,7 +247,7 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
           <div className="inline-flex items-center gap-2 bg-primary-50 px-4 py-2 rounded-xl text-primary-500 w-full justify-center">
             <TrendingUp size={20} />
             <span className="font-medium">
-              Sequência: {userData.checkInStreak || 1} dias
+              Sequência: <span className="font-semibold">{userData?.dailyStreak?.currentStreak || 0} dias</span>
             </span>
           </div>
         </div>
@@ -313,11 +285,11 @@ function DailyCheckIn({ userData, onCheckIn }: DailyCheckInProps) {
             </div>
             <div>
               <h3 className="text-xl font-bold mb-1">Check-in Diário</h3>
-              <p className="flex items-center gap-2 text-sm text-gray-600">
-                <span>Sequência: {userData.checkInStreak || 0} dias</span>
-                <span className="text-pink-500">•</span>
-                <span>{calculateReward()} KiiCoins por check-in</span>
+              <p className="text-sm text-gray-600">
+                Sequência: <span className="font-semibold">{userData?.dailyStreak?.currentStreak || 0} dias</span>
               </p>
+              <p className="text-sm text-gray-600">•</p>
+              <p className="text-sm text-gray-600">{calculateReward()} KiiCoins por check-in</p>
             </div>
           </div>
           <div className="flex items-center gap-2 bg-primary-50/90 backdrop-blur-sm px-3 py-1.5 rounded-xl shadow-md">

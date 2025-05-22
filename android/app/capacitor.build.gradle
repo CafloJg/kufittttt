@@ -5,15 +5,11 @@ android {
       sourceCompatibility JavaVersion.VERSION_21
       targetCompatibility JavaVersion.VERSION_21
   }
-  compileSdkVersion 34
-  defaultConfig {
-    targetSdkVersion 34
-  }
 }
 
 apply from: "../capacitor-cordova-android-plugins/cordova.variables.gradle"
 dependencies {
-
+    implementation project(':codetrix-studio-capacitor-google-auth')
 
 }
 

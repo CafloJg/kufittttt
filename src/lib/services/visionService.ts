@@ -1,19 +1,16 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import type { FoodImageAnalysis } from '../../types/image';
+import { analyzeImageWithGemini } from '../api/gemini-vision';
 
 export class VisionService {
   private static instance: VisionService;
-  private readonly genAI: GoogleGenerativeAI;
   private mobilenetModel: any;
   private cocoModel: any;
   private isInitialized = false;
 
-  private constructor() {
-    this.genAI = new GoogleGenerativeAI(import.meta.env.VITE_GOOGLE_AI_API_KEY);
-  }
+  private constructor() {}
 
   static getInstance(): VisionService {
     if (!this.instance) {
@@ -31,8 +28,8 @@ export class VisionService {
       this.cocoModel = await cocoSsd.load();
       this.isInitialized = true;
     } catch (error) {
-      console.error('Error initializing vision models:', error);
-      throw new Error('Failed to initialize vision service');
+      console.error('Erro ao inicializar modelos de visão:', error);
+      throw new Error('Falha ao inicializar serviço de visão');
     }
   }
 
@@ -40,7 +37,7 @@ export class VisionService {
     await this.initialize();
 
     try {
-      // Convert base64 to image element
+      // Converter base64 para elemento de imagem
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -48,34 +45,17 @@ export class VisionService {
         img.src = imageData;
       });
 
-      // Run through MobileNet for food classification
+      // Executar classificação com MobileNet
       const tfImg = tf.browser.fromPixels(img);
       const mobilenetResults = await this.mobilenetModel.classify(tfImg);
 
-      // Run through COCO-SSD for object detection
+      // Executar detecção de objetos com COCO-SSD
       const cocoResults = await this.cocoModel.detect(img);
 
-      // Use Gemini Vision for detailed analysis
-      const geminiModel = this.genAI.getGenerativeModel({ model: 'gemini-pro-vision' });
-      const result = await geminiModel.generateContent([
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageData.split(',')[1]
-          }
-        },
-        {
-          text: `Analyze this food image and return a JSON with:
-            1. Foods detected with confidence scores
-            2. Estimated nutritional information
-            3. Portion sizes
-            4. Image quality assessment`
-        }
-      ]);
+      // Usar Gemini Vision para análise detalhada
+      const geminiAnalysis = await analyzeImageWithGemini(imageData);
 
-      const geminiAnalysis = JSON.parse(result.response.text());
-
-      // Combine all results
+      // Combinar todos os resultados
       const analysis: FoodImageAnalysis = {
         foods: mobilenetResults
           .filter((r: any) => r.className.includes('food'))
@@ -92,7 +72,7 @@ export class VisionService {
         timestamp: new Date().toISOString()
       };
 
-      // Add bounding boxes from COCO-SSD
+      // Adicionar caixas delimitadoras do COCO-SSD
       cocoResults.forEach((result: any) => {
         const foodItem = analysis.foods.find(f => 
           f.name.toLowerCase().includes(result.class.toLowerCase())
@@ -109,8 +89,8 @@ export class VisionService {
 
       return analysis;
     } catch (error) {
-      console.error('Error analyzing food image:', error);
-      throw new Error('Failed to analyze food image');
+      console.error('Erro ao analisar imagem de comida:', error);
+      throw new Error('Falha ao analisar imagem de comida');
     }
   }
 }

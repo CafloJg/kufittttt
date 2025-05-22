@@ -12,7 +12,7 @@ import { updateDailyStats, addMealToDailyStats } from '../utils/dietStatsUtils';
 // Dias da semana para variação do plano (1=Segunda, 3=Quarta, 5=Sexta)
 const VARIATION_DAYS = [1, 3, 5];
 
-interface DietContextType {
+export interface DietContextType {
   currentPlan: DietPlan | null;
   isGenerating: boolean;
   error: string | null;
@@ -25,6 +25,7 @@ interface DietContextType {
   likeMeal: (mealId: string) => Promise<void>;
   dislikeMeal: (mealId: string) => Promise<void>;
   getMealRating: (mealId: string) => { liked: boolean; disliked: boolean };
+  addCustomMeal: (mealData: { name: string, nutrition: { kcal: number, protein: number, carbs: number, fat: number }}) => Promise<void>;
 }
 
 const DietContext = createContext<DietContextType | undefined>(undefined);
@@ -422,8 +423,11 @@ export function DietProvider({ children }: { children: ReactNode }) {
 
       // Update in Firestore
       try {        
+        // Clean undefined values before updating
+        const cleanedPlan = JSON.parse(JSON.stringify(updatedPlan));
+
         // Use the repository to update both the plan and user data atomically
-        const result = await dietRepo.updateCurrentPlanAndUserStats(user.uid, updatedPlan);
+        const result = await dietRepo.updateCurrentPlanAndUserStats(user.uid, cleanedPlan);
         console.log('Plan and user stats updated in Firestore successfully');
         
         // Refresh user data to update dashboard
@@ -439,7 +443,9 @@ export function DietProvider({ children }: { children: ReactNode }) {
         console.error('Error updating plan in Firestore:', updateError);
         // Attempt to update just the plan as a fallback
         try {
-          await dietRepo.updateCurrentPlan(user.uid, updatedPlan);
+          // Ensure the plan is clean here too
+          const fallbackCleanedPlan = JSON.parse(JSON.stringify(updatedPlan));
+          await dietRepo.updateCurrentPlan(user.uid, fallbackCleanedPlan);
           console.log('Fallback: Updated plan only');
         } catch (fallbackError) {
           console.error('Fallback update also failed:', fallbackError);
@@ -497,27 +503,35 @@ export function DietProvider({ children }: { children: ReactNode }) {
         // Criar um ID único para a refeição favorita
         const favoriteId = `fav-${meal.id}-${Date.now()}`;
         
-        // Adicionar a refeição aos favoritos
-        favoriteMeals[favoriteId] = {
+        // Adicionar a refeição aos favoritos (garantir tipo correto)
+        const favMeal: Partial<Meal> & { savedAt: string } = {
           id: favoriteId,
           name: meal.name,
           calories: meal.calories,
           protein: meal.protein,
           carbs: meal.carbs,
           fat: meal.fat,
-          foods: meal.foods.map(food => ({
-            name: food.name,
-            portion: food.portion
-          })),
+          // Garantir que foods não seja undefined e copiar todos os campos
+          foods: meal.foods?.map(food => ({
+            // Copiar todos os campos de food
+            ...food 
+          })) ?? [], 
           savedAt: new Date().toISOString()
         };
+
+        favoriteMeals[favoriteId] = favMeal;
+
       } else {
         // Se estamos removendo o like, procurar e remover dos favoritos
         console.log('Removendo refeição dos favoritos:', meal.name);
         
         // Encontrar todas as entradas que correspondem a esta refeição
+        // Ajustar filtro para verificar tipo e propriedade 'name'
         const matchingFavorites = Object.entries(favoriteMeals)
-          .filter(([_, fav]) => fav.name === meal.name)
+          .filter(([_, fav]) => {
+            // Verificar se 'fav' é um objeto e tem a propriedade 'name'
+            return typeof fav === 'object' && fav !== null && 'name' in fav && (fav as Partial<Meal>).name === meal.name;
+          })
           .map(([id]) => id);
         
         // Remover as entradas correspondentes
@@ -526,12 +540,17 @@ export function DietProvider({ children }: { children: ReactNode }) {
         });
       }
       
-      // Atualizar no Firestore
-      await updateDoc(userRef, {
-        'mealRatings': newRatings,
-        'favoriteMeals': favoriteMeals,
-        'updatedAt': new Date().toISOString()
-      });
+      // Preparar dados para atualização
+      const updateData = {
+        mealRatings: newRatings,
+        favoriteMeals: favoriteMeals,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Limpar undefined antes de atualizar no Firestore
+      const cleanedUpdateData = JSON.parse(JSON.stringify(updateData));
+
+      await updateDoc(userRef, cleanedUpdateData);
       
       console.log(`Refeição ${mealId} avaliada como 'like' e atualizada nos favoritos`);
       
@@ -574,12 +593,17 @@ export function DietProvider({ children }: { children: ReactNode }) {
       
       setMealRatings(newRatings);
       
-      // Atualizar no Firestore
+      // Preparar dados para atualização
+      const updateData = {
+        mealRatings: newRatings,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Limpar undefined antes de atualizar no Firestore
+      const cleanedUpdateData = JSON.parse(JSON.stringify(updateData));
+
       const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        'mealRatings': newRatings,
-        'updatedAt': new Date().toISOString()
-      });
+      await updateDoc(userRef, cleanedUpdateData);
       
       console.log(`Refeição ${mealId} avaliada como 'dislike'`);
       
@@ -604,21 +628,103 @@ export function DietProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  // Função para adicionar uma refeição personalizada
+  const addCustomMeal = async (mealData: { 
+    name: string, 
+    nutrition: { 
+      kcal: number, 
+      protein: number, 
+      carbs: number, 
+      fat: number 
+    }
+  }): Promise<void> => {
+    if (!user || !currentPlan) {
+      setError('Plano alimentar não encontrado. Gere um novo plano.');
+      throw new Error('Plano alimentar não encontrado. Gere um novo plano.');
+    }
+    
+    try {
+      // Gerar ID único para a nova refeição
+      const mealId = `custom-${Date.now()}`;
+      
+      // Criar objeto de refeição no formato esperado pelo sistema
+      const newMeal: Meal = {
+        id: mealId,
+        name: mealData.name,
+        calories: mealData.nutrition.kcal,
+        protein: mealData.nutrition.protein,
+        carbs: mealData.nutrition.carbs,
+        fat: mealData.nutrition.fat,
+        foods: [{
+          name: mealData.name,
+          portion: "1 porção",
+          calories: mealData.nutrition.kcal,
+          protein: mealData.nutrition.protein,
+          carbs: mealData.nutrition.carbs,
+          fat: mealData.nutrition.fat
+        }],
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      };
+      
+      // Adicionar a refeição ao plano atual
+      const updatedMeals = [...currentPlan.meals, newMeal];
+      
+      // Atualizar o plano com a nova refeição
+      const updatedPlan = {
+        ...currentPlan,
+        meals: updatedMeals,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      // Atualizar no Firestore
+      try {
+        // Limpar valores undefined antes de atualizar
+        const cleanedPlan = JSON.parse(JSON.stringify(updatedPlan));
+        
+        // Usar o repositório para atualizar o plano
+        await dietRepo.updateCurrentPlan(user.uid, cleanedPlan);
+        console.log('Refeição personalizada adicionada com sucesso:', newMeal.name);
+        
+        // Atualizar estado local
+        setCurrentPlan(updatedPlan);
+        
+        // Opcional: marcar a refeição como concluída
+        await markMealCompleted(mealId);
+        
+        // Atualizar cache
+        queryClient.invalidateQueries({ queryKey: ['dietPlan'] });
+        
+        // Alerta de sucesso (pode ser implementado em outro lugar)
+        console.log('Refeição personalizada adicionada e registrada no consumo diário');
+      } catch (updateError) {
+        console.error('Erro ao atualizar plano com refeição personalizada:', updateError);
+        throw updateError;
+      }
+    } catch (err) {
+      console.error('Erro ao adicionar refeição personalizada:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao adicionar refeição personalizada');
+      throw err;
+    }
+  };
+
   return (
-    <DietContext.Provider value={{
-      currentPlan,
-      isGenerating,
-      error,
-      generationMessage,
-      setGenerationMessage,
-      generatePlan,
-      cancelGeneration,
-      markMealCompleted,
-      refreshPlan,
-      likeMeal,
-      dislikeMeal,
-      getMealRating
-    }}>
+    <DietContext.Provider
+      value={{
+        currentPlan,
+        isGenerating,
+        error,
+        generationMessage,
+        setGenerationMessage,
+        generatePlan,
+        cancelGeneration,
+        markMealCompleted,
+        refreshPlan,
+        likeMeal,
+        dislikeMeal,
+        getMealRating,
+        addCustomMeal
+      }}
+    >
       {children}
     </DietContext.Provider>
   );

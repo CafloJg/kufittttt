@@ -93,7 +93,7 @@ ${this.favoriteMeals.map((meal, index) => {
 `;
 }).join('\n')}
 
-IMPORTANTE: Priorize incluir essas refeições favoritas no plano, adaptando-as conforme necessário para atender aos macronutrientes alvo. SEMPRE inclua pelo menos 2 refeições favoritas, se disponíveis.
+IMPORTANTE: Tente incluir algumas dessas refeições favoritas no plano, adaptando-as conforme necessário, mas EQUILIBRE com a necessidade de VARIEDADE GERAL nos alimentos e preparações.
 `;
 
     // Inserir a seção de favoritos antes da seção de formato JSON
@@ -175,7 +175,7 @@ IMPORTANTE: Priorize incluir essas refeições favoritas no plano, adaptando-as 
       }
       
       // Validar compatibilidade com a dieta do usuário
-      this.validateDietCompatibility(plan, user.dietType || 'omnivoro');
+      // this.validateDietCompatibility(plan, user.dietType || 'omnivoro');
       
       console.log('Plan generated, saving...');
       console.log('Saving plan...');
@@ -713,7 +713,7 @@ IMPORTANTE: Priorize incluir essas refeições favoritas no plano, adaptando-as 
     if (user.budgetPreference) {
       switch (user.budgetPreference) {
         case 'low':
-          budgetText = 'Econômico (priorizar alimentos acessíveis e de baixo custo)';
+          budgetText = 'Econômico (foco em alimentos acessíveis e de baixo custo)';
           break;
         case 'medium':
           budgetText = 'Moderado (equilíbrio entre custo e qualidade)';
@@ -729,10 +729,10 @@ IMPORTANTE: Priorize incluir essas refeições favoritas no plano, adaptando-as 
     const maternityText = isMaternity ? 'Sim (gestante ou amamentando)' : 'Não';
     
     // Instruções específicas por tipo de dieta
-    let dietSpecificInstructions = '';
+    let dietInstructions = '';
     if (user.dietType === 'vegano') {
-      dietSpecificInstructions = `
-==================== ATENÇÃO ESPECIAL PARA DIETA VEGANA ====================
+      dietInstructions = `
+REGRAS PARA DIETA VEGANA - MUITO IMPORTANTE:
 É ABSOLUTAMENTE CRÍTICO que NENHUM alimento de origem animal seja incluído no plano.
 
 ESTRITAMENTE PROIBIDOS na dieta vegana:
@@ -754,8 +754,8 @@ Quaisquer alimentos de origem animal comprometerão SERIAMENTE o plano.
 =======================================================================
 `;
     } else if (user.dietType === 'vegetariano') {
-      dietSpecificInstructions = `
-==================== ATENÇÃO ESPECIAL PARA DIETA VEGETARIANA ====================
+      dietInstructions = `
+REGRAS PARA DIETA VEGETARIANA - MUITO IMPORTANTE:
 É ABSOLUTAMENTE CRÍTICO que NENHUM tipo de carne seja incluído no plano.
 
 ESTRITAMENTE PROIBIDOS na dieta vegetariana:
@@ -780,8 +780,8 @@ Quaisquer carnes ou peixes comprometerão SERIAMENTE o plano.
 =======================================================================
 `;
     } else if (user.dietType === 'low-carb') {
-      dietSpecificInstructions = `
-==================== ATENÇÃO ESPECIAL PARA DIETA LOW-CARB ====================
+      dietInstructions = `
+REGRAS PARA DIETA LOW-CARB:
 É CRÍTICO restringir carboidratos a no máximo ${Math.round(macros.carbsTarget)}g por dia.
 
 LIMITADOS na dieta low-carb:
@@ -798,7 +798,7 @@ VERIFIQUE o teor de carboidratos de cada alimento e MANTENHA o total dentro da m
 =======================================================================
 `;
     } else if (user.dietType === 'cetogenica') {
-      dietSpecificInstructions = `
+      dietInstructions = `
 ==================== ATENÇÃO ESPECIAL PARA DIETA CETOGÊNICA ====================
 É ABSOLUTAMENTE CRÍTICO manter os carboidratos EXTREMAMENTE BAIXOS (máximo 25-30g por dia).
 
@@ -828,32 +828,33 @@ Cada refeição deve ser RICA EM GORDURAS e POBRE EM CARBOIDRATOS.
     }
 
     return `
-Você é um nutricionista brasileiro gerando um plano alimentar personalizado.
+Você é um nutricionista profissional brasileiro gerando um plano alimentar personalizado.
 RETORNE APENAS O JSON SOLICITADO, SEM TEXTO ADICIONAL E SEM FORMATAÇÃO MARKDOWN.
 IMPORTANTE: TODAS AS REFEIÇÕES E ALIMENTOS DEVEM ESTAR EM PORTUGUÊS DO BRASIL.
 
-${dietSpecificInstructions}
-
-PERFIL:
-- Peso: ${user.weight}kg
-- Altura: ${user.height}cm
-- Idade: ${user.age}
-- Gênero: ${user.gender}
-- Tipo de Dieta: ${user.dietType}
-- Objetivo: ${user.goals?.type}
-- Preferência de orçamento: ${budgetText || 'Não especificado'}
-- Maternidade: ${maternityText}
-- Alergias: ${user.allergies?.join(', ') || 'Nenhuma'}
-
 METAS NUTRICIONAIS:
-- Calorias: ${calories}
-- Proteína: ${macros.proteinTarget}g
-- Carboidratos: ${macros.carbsTarget}g
-- Gorduras: ${macros.fatTarget}g
-- Fibras: ${Math.round(calories / 1000 * 14)}g (14g/1000kcal)
+Meta calórica: ${calories} kcal/dia
+Meta de proteína: ${macros.proteinTarget}g (${Math.round((macros.proteinTarget * 4 / calories) * 100)}% das calorias)
+Meta de carboidratos: ${macros.carbsTarget}g (${Math.round((macros.carbsTarget * 4 / calories) * 100)}% das calorias)
+Meta de gorduras: ${macros.fatTarget}g (${Math.round((macros.fatTarget * 9 / calories) * 100)}% das calorias)
+Meta de fibras: ${Math.round(calories / 1000 * 14)}g (14g/1000kcal)
 
-${user.allergies?.length ? 'RESTRIÇÕES:' : ''}
-${user.allergies?.map(a => `- Evitar: ${a}`).join('\n') || 'Nenhuma restrição'}
+PERFIL DO USUÁRIO:
+Peso: ${user.weight}kg
+Altura: ${user.height}cm
+Idade: ${user.age} anos
+Gênero: ${user.gender}
+IMC: ${Math.round(((user.weight ?? 0) / Math.pow((user.height ?? 1) / 100, 2)) * 10) / 10} // Adicionado fallback para evitar NaN
+Preferência de orçamento: ${budgetText || 'Não especificado'}
+Maternidade: ${maternityText}
+
+PREFERÊNCIAS DO USUÁRIO:
+Alergias: ${user.allergies?.join(', ') || 'Nenhuma'}
+Tipo de dieta: ${user.dietType}
+Objetivo: ${user.goals?.type === 'loss' ? 'Emagrecimento' : user.goals?.type === 'gain' ? 'Ganho de massa' : 'Manutenção'}
+Nível de atividade: ${user.goals?.activityLevel || 'moderado'}
+
+${dietInstructions}
 
 ${isMaternity ? `REGRAS PARA MATERNIDADE:
 - PRIORIZE alimentos ricos em ferro, cálcio, ácido fólico e ômega-3
@@ -907,6 +908,26 @@ HORÁRIOS OBRIGATÓRIOS:
 ${macros.proteinTarget >= 150 ? '- Pré-Treino: 18:00\n' : ''}- Jantar: ${macros.proteinTarget >= 150 ? '21:00' : '20:00'}
 
 IMPORTANTE:
+GARANTA A MÁXIMA VARIEDADE POSSÍVEL nos alimentos sugeridos ao longo do dia e entre os dias, se aplicável. A REPETIÇÃO EXCESSIVA DE ALIMENTOS DEVE SER EVITADA.
+Use APENAS alimentos comuns e acessíveis no Brasil
+NUNCA repita o mesmo alimento principal (ex: frango, arroz) em refeições diferentes NO MESMO DIA. Varie as fontes.
+PRIORIZE os alimentos preferidos do usuário (score positivo)
+EVITE TOTALMENTE os alimentos não desejados (score negativo) e os listados em alergias.
+DISTRIBUA proteínas ao longo do dia
+INCLUA fibras em todas as refeições (mínimo 3g por refeição)
+PRIORIZE gorduras boas (azeite, abacate, castanhas)
+INCLUA vegetais coloridos para variedade nutricional
+Ao substituir um alimento não desejado, use alternativas variadas e nutricionalmente similares, não sempre a mesma substituição.
+Priorize SEMPRE alimentos naturais e frescos
+Controle o sódio diário (máx 2000mg) e use temperos naturais
+VARIE fontes de proteína (animal/vegetal conforme dieta)
+VARIE cores dos vegetais (verde escuro, laranja, vermelho)
+USE medidas caseiras precisas (colher, xícara, unidade)
+AJUSTE porções para atingir metas de macros
+${user.budgetPreference === 'high' ? `- INCLUA alimentos premium de alta qualidade nutricional
+- CONSIDERE superalimentos e ingredientes funcionais` : ''}
+
+REGRAS ADICIONAIS:
 - Use APENAS alimentos comuns e acessíveis no Brasil
 - NUNCA use nomes de alimentos em inglês, SEMPRE em português do Brasil
 - NUNCA repita o mesmo alimento principal em refeições diferentes
@@ -919,10 +940,9 @@ IMPORTANTE:
 - VARIE fontes de proteína (animal/vegetal conforme dieta)
 - VARIE cores dos vegetais (verde escuro, laranja, vermelho)
 - USE medidas caseiras precisas (colher, xícara, unidade)
-${user.budgetPreference === 'high' ? `- INCLUA alimentos premium de alta qualidade nutricional
-- CONSIDERE superalimentos e ingredientes funcionais` : ''}
+- AJUSTE porções para atingir metas de macros
 
-FORMATO JSON:
+RETORNE O JSON NO SEGUINTE FORMATO:
 { 
   "meals": [
     {

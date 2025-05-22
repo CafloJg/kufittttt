@@ -403,6 +403,10 @@ async function generateMeals(user: UserProfile): Promise<DietPlan> {
     let response;
     let attempt = 0;
     const prompt = generatePrompt(user, calories, macros);
+    // Adicionar log do prompt final
+    console.log("--- PROMPT ENVIADO PARA API ---");
+    console.log(prompt);
+    console.log("-------------------------------");
 
     while (attempt < MAX_RETRIES) {
       try {
@@ -449,7 +453,152 @@ async function generateMeals(user: UserProfile): Promise<DietPlan> {
           throw new Error(`OpenAI API error: ${response.status}`);
         }
 
-        break; // Success - exit retry loop
+        const data = await response.json();
+        
+        if (!data || !data.choices || data.choices.length === 0 || !data.choices[0].message || !data.choices[0].message.content) {
+          throw new Error('Resposta inválida da API OpenAI');
+        }
+        
+        let content = data.choices[0].message.content;
+
+        let plan;
+        try {
+          // Clean the content string
+          const cleanContent = content.trim();
+          
+          // Try to find valid JSON in the response
+          const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            throw new Error('Resposta não contém JSON válido');
+          }
+          
+          plan = JSON.parse(jsonMatch[0]);
+        } catch (parseError) {
+          console.error('JSON parse error:', {
+            error: parseError,
+            content: content
+          });
+          
+          // More specific error message based on parse error
+          const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown error';
+          if (errorMessage.includes('Unexpected end')) {
+            throw new Error('Resposta incompleta do serviço. Tente novamente.');
+          } else if (errorMessage.includes('position')) {
+            throw new Error('Erro de sintaxe na resposta. Tente novamente.');
+          } else {
+            throw new Error('Erro ao processar resposta do serviço. Tente novamente.');
+          }
+        }
+
+        // Validate plan structure
+        if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
+          throw new Error('Estrutura do plano alimentar incompleta. Tente novamente.');
+        }
+
+        // Validate each meal has required fields
+        for (const meal of plan.meals) {
+          if (!meal.name || !meal.time || !Array.isArray(meal.foods)) {
+            throw new Error(`Dados incompletos na refeição "${meal.name || 'sem nome'}". Tente novamente.`);
+          }
+          // Validate each food item
+          for (const food of meal.foods) {
+            if (!food.name || !food.portion || 
+                typeof food.calories !== 'number' ||
+                typeof food.protein !== 'number' ||
+                typeof food.carbs !== 'number' ||
+                typeof food.fat !== 'number') {
+              const missing = [];
+              if (!food.name) missing.push('nome');
+              if (!food.portion) missing.push('porção');
+              if (typeof food.calories !== 'number') missing.push('calorias');
+              if (typeof food.protein !== 'number') missing.push('proteína');
+              if (typeof food.carbs !== 'number') missing.push('carboidratos');
+              if (typeof food.fat !== 'number') missing.push('gordura');
+              
+              throw new Error(
+                `Dados incompletos no alimento "${food.name || 'sem nome'}" ` +
+                `(faltando: ${missing.join(', ')}). Tente novamente.`
+              );
+            }
+            // Ensure all numeric values are valid
+            food.calories = Math.max(0, Math.round(food.calories));
+            food.protein = Math.max(0, Math.round(food.protein * 10) / 10);
+            food.carbs = Math.max(0, Math.round(food.carbs * 10) / 10);
+            food.fat = Math.max(0, Math.round(food.fat * 10) / 10);
+          }
+        }
+
+        validateMealPlan(plan, macros, attempt, user.dietType);
+
+        // Add images to meals and foods
+        const mealsWithImages = await Promise.all(
+          plan.meals.map(async (meal: any, index: number) => {
+            const mealImages = await getImage(`${meal.name} gourmet plated dish`, false);
+            
+            const foodsWithImages = await Promise.all(
+              meal.foods.map(async (food: any) => {
+                const foodImages = await getImage(`${food.name} gourmet plated dish`, false);
+                return {
+                  ...food,
+                  id: `food_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  imageUrl: foodImages.imageUrl,
+                  thumbnailUrl: foodImages.thumbnailUrl
+                };
+              })
+            );
+
+            return {
+              ...meal,
+              id: `meal_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              imageUrl: mealImages.imageUrl,
+              thumbnailUrl: mealImages.thumbnailUrl,
+              foods: foodsWithImages
+            };
+          })
+        );
+
+        const finalPlan: DietPlan = {
+          id: `plan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          userId: user.uid,
+          createdAt: new Date().toISOString(),
+          lastActive: new Date().toISOString(),
+          completedOnboarding: user.completedOnboarding || false,
+          totalCalories: calories,
+          proteinTarget: macros.proteinTarget,
+          carbsTarget: macros.carbsTarget,
+          fatTarget: macros.fatTarget,
+          meals: mealsWithImages,
+          dailyStats: {
+            caloriesConsumed: 0,
+            proteinConsumed: 0,
+            carbsConsumed: 0,
+            fatConsumed: 0,
+            waterIntake: 0,
+            completedMeals: { [new Date().toISOString().split('T')[0]]: [] },
+            lastUpdated: new Date().toISOString()
+          }
+        };
+
+        // Generate future plans
+        const futurePlans = await generateFuturePlans(user, finalPlan);
+        finalPlan.nextPlans = futurePlans;
+
+        // Generate shopping list
+        const shoppingList = await generateShoppingList({
+          [new Date().toISOString().split('T')[0]]: finalPlan,
+          ...futurePlans
+        });
+
+        // Update user document
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+          currentDietPlan: finalPlan,
+          lastPlanGenerated: new Date().toISOString(),
+          shoppingList,
+          updatedAt: new Date().toISOString()
+        });
+
+        return finalPlan;
       } catch (error) {
         attempt++;
         
@@ -479,155 +628,9 @@ async function generateMeals(user: UserProfile): Promise<DietPlan> {
       }
     }
 
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('OpenAI API error:', error);
-      throw new Error(
-        error.error?.message || 'Erro ao gerar plano alimentar. Tente novamente.'
-      );
+    if (!content) {
+      throw new Error('Falha ao obter resposta da API após múltiplas tentativas.');
     }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
-      throw new Error('Resposta inválida do serviço. Tente novamente.');
-    }
-
-    let plan;
-    try {
-      // Clean the content string
-      const cleanContent = content.trim();
-      
-      // Try to find valid JSON in the response
-      const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Resposta não contém JSON válido');
-      }
-      
-      plan = JSON.parse(jsonMatch[0]);
-    } catch (parseError) {
-      console.error('JSON parse error:', {
-        error: parseError,
-        content: content
-      });
-      
-      // More specific error message based on parse error
-      const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown error';
-      if (errorMessage.includes('Unexpected end')) {
-        throw new Error('Resposta incompleta do serviço. Tente novamente.');
-      } else if (errorMessage.includes('position')) {
-        throw new Error('Erro de sintaxe na resposta. Tente novamente.');
-      } else {
-        throw new Error('Erro ao processar resposta do serviço. Tente novamente.');
-      }
-    }
-
-    // Validate plan structure
-    if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
-      throw new Error('Estrutura do plano alimentar incompleta. Tente novamente.');
-    }
-
-    // Validate each meal has required fields
-    for (const meal of plan.meals) {
-      if (!meal.name || !meal.time || !Array.isArray(meal.foods)) {
-        throw new Error(`Dados incompletos na refeição "${meal.name || 'sem nome'}". Tente novamente.`);
-      }
-      // Validate each food item
-      for (const food of meal.foods) {
-        if (!food.name || !food.portion || 
-            typeof food.calories !== 'number' ||
-            typeof food.protein !== 'number' ||
-            typeof food.carbs !== 'number' ||
-            typeof food.fat !== 'number') {
-          const missing = [];
-          if (!food.name) missing.push('nome');
-          if (!food.portion) missing.push('porção');
-          if (typeof food.calories !== 'number') missing.push('calorias');
-          if (typeof food.protein !== 'number') missing.push('proteína');
-          if (typeof food.carbs !== 'number') missing.push('carboidratos');
-          if (typeof food.fat !== 'number') missing.push('gordura');
-          
-          throw new Error(
-            `Dados incompletos no alimento "${food.name || 'sem nome'}" ` +
-            `(faltando: ${missing.join(', ')}). Tente novamente.`
-          );
-        }
-        // Ensure all numeric values are valid
-        food.calories = Math.max(0, Math.round(food.calories));
-        food.protein = Math.max(0, Math.round(food.protein * 10) / 10);
-        food.carbs = Math.max(0, Math.round(food.carbs * 10) / 10);
-        food.fat = Math.max(0, Math.round(food.fat * 10) / 10);
-      }
-    }
-
-    validateMealPlan(plan, macros, attempt, user.dietType);
-
-    // Add images to meals and foods
-    const mealsWithImages = await Promise.all(
-      plan.meals.map(async (meal: any, index: number) => {
-        const mealImages = await getImage(`${meal.name} gourmet plated dish`, false);
-        
-        const foodsWithImages = await Promise.all(
-          meal.foods.map(async (food: any) => {
-            const foodImages = await getImage(`${food.name} gourmet plated dish`, false);
-            return {
-              ...food,
-              id: `food_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              imageUrl: foodImages.imageUrl,
-              thumbnailUrl: foodImages.thumbnailUrl
-            };
-          })
-        );
-
-        return {
-          ...meal,
-          id: `meal_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          imageUrl: mealImages.imageUrl,
-          thumbnailUrl: mealImages.thumbnailUrl,
-          foods: foodsWithImages
-        };
-      })
-    );
-
-    const finalPlan: DietPlan = {
-      id: `plan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      userId: user.uid,
-      createdAt: new Date().toISOString(),
-      totalCalories: calories,
-      proteinTarget: macros.proteinTarget,
-      carbsTarget: macros.carbsTarget,
-      fatTarget: macros.fatTarget,
-      meals: mealsWithImages,
-      dailyStats: {
-        caloriesConsumed: 0,
-        proteinConsumed: 0,
-        carbsConsumed: 0,
-        fatConsumed: 0,
-        waterIntake: 0,
-        completedMeals: { [new Date().toISOString().split('T')[0]]: [] },
-        lastUpdated: new Date().toISOString()
-      }
-    };
-
-    // Generate future plans
-    const futurePlans = await generateFuturePlans(user, finalPlan);
-    finalPlan.nextPlans = futurePlans;
-
-    // Generate shopping list
-    const shoppingList = await generateShoppingList({
-      [new Date().toISOString().split('T')[0]]: finalPlan,
-      ...futurePlans
-    });
-
-    // Update user document
-    const userRef = doc(db, 'users', user.uid);
-    await updateDoc(userRef, {
-      currentDietPlan: finalPlan,
-      lastPlanGenerated: new Date().toISOString(),
-      shoppingList,
-      updatedAt: new Date().toISOString()
-    });
 
     return finalPlan;
   } catch (error) {
@@ -748,6 +751,11 @@ function calculateDailyCalories(user: UserProfile): number {
 
 // Helper function to generate prompt
 function generatePrompt(user: UserProfile, calories: number, macros: { proteinTarget: number; carbsTarget: number; fatTarget: number }): string {
+  // Adicionar log para verificar as preferências recebidas
+  console.log("--- PREFERÊNCIAS RECEBIDAS EM generatePrompt ---");
+  console.log(user.foodPreferences);
+  console.log("---------------------------------------------");
+  
   const foodPreferences = user.foodPreferences || {};
   const likedFoods = Object.entries(foodPreferences)
     .filter(([_, pref]) => pref.type === 'like')
@@ -920,15 +928,16 @@ HORÁRIOS OBRIGATÓRIOS:
 ${macros.proteinTarget >= 150 ? '- Pré-Treino: 18:00\n' : ''}- Jantar: ${macros.proteinTarget >= 150 ? '21:00' : '20:00'}
 
 IMPORTANTE:
++ GARANTA A MÁXIMA VARIEDADE POSSÍVEL nos alimentos sugeridos ao longo do dia e entre os dias, se aplicável.
 - Use APENAS alimentos comuns e acessíveis no Brasil
-- NUNCA repita o mesmo alimento principal em refeições diferentes
+- NUNCA repita o mesmo alimento principal (ex: frango, arroz) em refeições diferentes NO MESMO DIA. Varie as fontes.
 - PRIORIZE os alimentos preferidos do usuário (score positivo)
 - EVITE TOTALMENTE os alimentos não desejados (score negativo)
 - DISTRIBUA proteínas ao longo do dia
 - INCLUA fibras em todas as refeições (mínimo 3g por refeição)
 - PRIORIZE gorduras boas (azeite, abacate, castanhas)
 - INCLUA vegetais coloridos para variedade nutricional
-- Ao substituir um alimento não desejado, use alternativas similares em nutrientes
+- Ao substituir um alimento não desejado, use alternativas variadas e nutricionalmente similares, não sempre a mesma substituição.
 - Priorize SEMPRE alimentos naturais e frescos
 - Controle o sódio diário (máx 2000mg) e use temperos naturais
 - VARIE fontes de proteína (animal/vegetal conforme dieta)

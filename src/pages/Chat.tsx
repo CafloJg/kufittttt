@@ -165,7 +165,7 @@ function Chat() {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 pb-safe-bottom">
-      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-6">
+      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-6 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-primary-500 to-secondary-500 bg-clip-text text-transparent mb-2">
           Consulta Nutricional
         </h1>
@@ -197,7 +197,7 @@ function Chat() {
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-white p-4 rounded-2xl shadow-lg">
+              <div className="bg-white p-6 rounded-2xl shadow-lg">
                 {isTyping ? (
                   <div className="flex items-center gap-1">
                     <span className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />

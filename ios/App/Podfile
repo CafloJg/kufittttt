@@ -1,6 +1,6 @@
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
-platform :ios, '14.0'
+platform :ios, '15.0'
 use_frameworks!
 
 # workaround to avoid Xcode caching of Pods that requires
@@ -11,34 +11,16 @@ install! 'cocoapods', :disable_input_output_paths => true
 def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
-
+  pod 'CodetrixStudioCapacitorGoogleAuth', :path => '../../node_modules/@codetrix-studio/capacitor-google-auth'
 end
 
 target 'App' do
   capacitor_pods
-  
-  # Firebase
-  pod 'Firebase/Core'
-  pod 'Firebase/Analytics'
-  pod 'Firebase/Messaging'
-  
-  # Outras dependências
-  pod 'GoogleSignIn'
-  pod 'FBSDKCoreKit'
-  pod 'FBSDKLoginKit'
-  pod 'SDWebImage'
-  pod 'Alamofire'
-  pod 'SwiftyJSON'
+  # Add your Pods here
+  pod 'FirebaseAuth', '~> 9.6.0'
+  use_frameworks! :linkage => :static
 end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
-  
-  # Configurações adicionais para o Firebase
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      config.build_settings['ENABLE_BITCODE'] = 'NO'
-    end
-  end
 end

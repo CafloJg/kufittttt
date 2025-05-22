@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 
 interface SliderProps {
@@ -12,6 +12,8 @@ interface SliderProps {
 }
 
 function Slider({ value, onChange, min, max, step, label, unit }: SliderProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const percentage = ((value - min) / (max - min)) * 100;
 
   const handleIncrement = () => {
@@ -22,6 +24,45 @@ function Slider({ value, onChange, min, max, step, label, unit }: SliderProps) {
   const handleDecrement = () => {
     const newValue = Math.max(min, value - step);
     onChange(newValue);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    updateValue(e);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    updateValue(e);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setIsDragging(true);
+    updateValue(e.touches[0]);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging) return;
+    updateValue(e.touches[0]);
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+  };
+
+  const updateValue = (e: React.MouseEvent | Touch) => {
+    if (!sliderRef.current) return;
+    
+    const rect = sliderRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
+    const newValue = Math.round((min + (max - min) * percentage) / step) * step;
+    
+    onChange(Math.max(min, Math.min(max, newValue)));
   };
 
   return (
@@ -50,19 +91,24 @@ function Slider({ value, onChange, min, max, step, label, unit }: SliderProps) {
           </button>
         </div>
       </div>
-      <div className="relative w-full h-2 bg-gray-200 rounded-full">
+      <div
+        ref={sliderRef}
+        className="relative h-2 bg-gray-200 rounded-full cursor-pointer"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         <div
           className="absolute h-full bg-primary-500 rounded-full"
           style={{ width: `${percentage}%` }}
         />
-        <input
-          type="range"
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
-          min={min}
-          max={max}
-          step={step}
-          className="absolute w-full h-full opacity-0 cursor-pointer"
+        <div
+          className="absolute w-4 h-4 bg-primary-500 rounded-full top-1/2 -translate-y-1/2"
+          style={{ left: `${percentage}%` }}
         />
       </div>
       <div className="flex justify-between text-xs text-gray-500">

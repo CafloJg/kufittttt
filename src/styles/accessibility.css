@@ -1,0 +1,102 @@
+/* Estilos de acessibilidade para o KiiFit App */
+
+/* Modo de alto contraste */
+.high-contrast {
+  --bg-primary: #000000;
+  --text-primary: #ffffff;
+  --accent-color: #ffff00;
+  --error-color: #ff6060;
+  --success-color: #60ff60;
+  --border-color: #ffffff;
+}
+
+.high-contrast button,
+.high-contrast a {
+  border: 2px solid var(--border-color);
+  outline: 2px solid transparent;
+}
+
+.high-contrast button:focus,
+.high-contrast a:focus {
+  outline: 2px solid var(--accent-color);
+}
+
+/* Modo de texto grande */
+.large-text {
+  font-size: 1.25rem;
+}
+
+.large-text h1 {
+  font-size: 2.5rem;
+}
+
+.large-text h2 {
+  font-size: 2rem;
+}
+
+.large-text h3 {
+  font-size: 1.75rem;
+}
+
+.large-text button,
+.large-text input,
+.large-text select {
+  font-size: 1.25rem;
+  padding: 0.75rem;
+}
+
+/* Modo de movimento reduzido */
+.reduce-motion * {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* Melhorias gerais de acessibilidade */
+*:focus {
+  outline: 2px solid #4a90e2;
+  outline-offset: 2px;
+}
+
+/* Melhorar visibilidade de elementos interativos */
+button, 
+a, 
+input[type="button"], 
+input[type="submit"] {
+  cursor: pointer;
+}
+
+/* Melhorar contraste de texto em fundos claros/escuros */
+@media (prefers-color-scheme: dark) {
+  body:not(.high-contrast) {
+    --text-primary: #f0f0f0;
+    --bg-primary: #121212;
+  }
+}
+
+/* Suporte para navegação por teclado */
+[tabindex]:focus {
+  outline: 2px solid #4a90e2;
+  outline-offset: 2px;
+}
+
+/* Melhorar legibilidade de texto */
+body {
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+/* Melhorar espaçamento para facilitar a leitura */
+p, h1, h2, h3, h4, h5, h6 {
+  margin-bottom: 1rem;
+}
+
+/* Melhorar feedback visual para estados de elementos */
+button:active,
+a:active {
+  transform: scale(0.98);
+}
+
+.reduce-motion button:active,
+.reduce-motion a:active {
+  transform: none;
+}

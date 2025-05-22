@@ -10,12 +10,13 @@ import { useDietContext } from '../context/DietContext';
 import LoadingIndicator from '../components/ui/LoadingIndicator';
 import WaterTracker from '../components/WaterTracker';
 import { useErrorHandling } from '../hooks';
+import { resetDailyStats } from '../utils/dailyReset';
 
 function Dashboard() {
   const navigate = useNavigate();
   const { user, isLoading, refreshUserData } = useUser();
   const { currentPlan } = useDietContext();
-  const { withErrorHandling, error: handlingError } = useErrorHandling();
+  const { withErrorHandling } = useErrorHandling();
   const [currentHour] = useState(new Date().getHours());
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -144,7 +145,6 @@ function Dashboard() {
     try {
       setIsRefreshing(true);
       
-      // Primeiro, reiniciar completamente as metas e estatísticas diárias
       if (user?.uid) {
         try {
           await resetDailyStats(user.uid);
@@ -154,13 +154,13 @@ function Dashboard() {
         }
       }
       
-      // Depois, atualizar a interface
+      // Atualizar a interface
       if (refreshUserData) {
         await refreshUserData();
       }
       
       // Forçar atualização da interface
-      lastCaloriesRef.current = 0; // Resetar para 0 após o check-in
+      lastCaloriesRef.current = 0;
       setLastUpdate(new Date());
       setUpdateKey(Date.now());
       
@@ -197,15 +197,18 @@ function Dashboard() {
         />
       }
     >
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 via-white to-gray-50 relative overflow-y-auto overscroll-contain pb-safe-bottom">
-        {/* Background decorative elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {/* Container externo: Mantém min-h */}
+      <div className="bg-gradient-to-b from-gray-50 via-white to-gray-50 relative flex flex-col min-h-[600px] md:min-h-screen">
+        {/* Background decorativo: OK */}
+        <div className="absolute inset-0 -z-10 pointer-events-none overflow-visible">
           <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary-500/5 blur-3xl animate-pulse-slow" />
           <div className="absolute top-60 -left-40 w-[32rem] h-[32rem] rounded-full bg-secondary-500/5 blur-3xl animate-pulse-slow delay-300" />
           <div className="absolute bottom-20 right-20 w-64 h-64 rounded-full bg-blue-500/5 blur-3xl animate-pulse-slow delay-700" />
         </div>
 
-        <div className="max-w-lg mx-auto px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom))] overflow-y-auto mobile-scroll-optimized">
+        {/* Container interno: REMOVER flex-1, overflow-y-auto, overscroll-y-auto */}
+        {/* Manter max-w-lg, mx-auto, padding */}
+        <div className="max-w-lg mx-auto px-4 py-6 w-full">
           {/* Header */}
           <div className="flex items-center justify-between mb-6 animate-fade-in">
             <div>
@@ -454,7 +457,8 @@ function Dashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </div> 
+
         <BottomNav />
       </div>
     </ErrorBoundary>
